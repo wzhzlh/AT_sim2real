@@ -1,5 +1,6 @@
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <tf2/time.hpp>
 #include <tf2_ros/buffer.h>
@@ -28,7 +29,6 @@ namespace {
 constexpr const char* kMapFrame = "map";
 constexpr const char* kBaseFrame = "base_link";
 constexpr const char* kJoint5Frame = "joint5";
-constexpr const char* kDefaultPointYamlPath = "/home/pc2/Desktop/AT_robot-lab/src/task_game/config/point.yaml";
 constexpr const char* kRed = "\033[31m";
 constexpr const char* kReset = "\033[0m";
 
@@ -55,6 +55,10 @@ struct RowKeys {
 
 void print_red(const std::string& message) {
     std::cerr << kRed << message << kReset << std::endl;
+}
+
+std::string default_point_yaml_path() {
+    return ament_index_cpp::get_package_share_directory("task_game") + "/config/point.yaml";
 }
 
 double yaw_from_quaternion(const geometry_msgs::msg::Quaternion& q) {
@@ -243,7 +247,7 @@ MeasurePoint::MeasurePoint(rclcpp::Node::SharedPtr node)
     : node_(std::move(node)),
       tf_buffer_(std::make_shared<tf2_ros::Buffer>(node_->get_clock())),
       tf_listener_(std::make_shared<tf2_ros::TransformListener>(*tf_buffer_)) {
-    node_->declare_parameter<std::string>("point_yaml_path", kDefaultPointYamlPath);
+    node_->declare_parameter<std::string>("point_yaml_path", default_point_yaml_path());
     point_yaml_path_ = node_->get_parameter("point_yaml_path").as_string();
 
     arm_cmd_pub_ = node_->create_publisher<std_msgs::msg::Int32>("arm_cmd", 10);

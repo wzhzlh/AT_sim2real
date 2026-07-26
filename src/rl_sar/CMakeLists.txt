@@ -50,11 +50,18 @@ add_definitions(-DBOOST_BIND_GLOBAL_PLACEHOLDERS)
 # Allow binaries in the build tree to locate sibling shared libraries without
 # requiring users to manually export LD_LIBRARY_PATH / DYLD_LIBRARY_PATH.
 set(RL_SAR_BUILD_RPATHS "")
+set(RL_SAR_INSTALL_RPATHS "")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND RL_SAR_BUILD_RPATHS "\$ORIGIN" "\$ORIGIN/../lib" "${CMAKE_BINARY_DIR}/lib")
+    list(APPEND RL_SAR_INSTALL_RPATHS "\$ORIGIN" "\$ORIGIN/..")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     list(APPEND RL_SAR_BUILD_RPATHS "@loader_path" "@loader_path/../lib" "${CMAKE_BINARY_DIR}/lib")
+    list(APPEND RL_SAR_INSTALL_RPATHS "@loader_path" "@loader_path/..")
 endif()
+
+set(CMAKE_SKIP_BUILD_RPATH FALSE)
+list(APPEND CMAKE_BUILD_RPATH ${RL_SAR_BUILD_RPATHS})
+list(APPEND CMAKE_INSTALL_RPATH ${RL_SAR_INSTALL_RPATHS})
 
 if(NOT USE_CMAKE)
     if($ENV{ROS_DISTRO} MATCHES "noetic")
@@ -908,7 +915,7 @@ if(USE_MUJOCO)
         )
     endif()
 
-    install(TARGETS rl_sim_mujoco DESTINATION bin)
+    install(TARGETS rl_sim_mujoco DESTINATION lib/${PROJECT_NAME})
     message(STATUS "MuJoCo configured: ${MUJOCO_DIR}")
 endif()
 

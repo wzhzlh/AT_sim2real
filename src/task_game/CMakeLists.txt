@@ -13,6 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -88,6 +89,7 @@ ament_target_dependencies(
 
 ament_target_dependencies(
   measure_node
+  ament_index_cpp
   rclcpp
   geometry_msgs
   tf2

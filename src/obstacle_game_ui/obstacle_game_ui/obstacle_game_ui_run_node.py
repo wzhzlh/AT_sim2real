@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import threading
 from functools import partial
@@ -14,14 +15,8 @@ class ObstacleGameUiRunNode(Node):
     def __init__(self):
         super().__init__("obstacle_game_ui_run_node")
         self.declare_parameter("target_node", "robot_calc_node")
-        self.declare_parameter(
-            "dog2_real_path",
-            "/home/pc2/Desktop/AT_robot-lab_obstacle/install/rl_sar/lib/rl_sar/rl_real_atdog2",
-        )
-        self.declare_parameter(
-            "dog3_real_path",
-            "/home/pc/Desktop/AT_robot-lab_obstacle/install/rl_sar/lib/rl_sar/rl_real_atdog3",
-        )
+        self.declare_parameter("dog2_real_command", "ros2 run rl_sar rl_real_atdog2")
+        self.declare_parameter("dog3_real_command", "ros2 run rl_sar rl_real_atdog3")
         target_node = self.get_parameter("target_node").value
         service_name = self._parameter_service_name(target_node)
         self.set_parameters_client = self.create_client(
@@ -163,16 +158,16 @@ class ObstacleGameUiRunNode(Node):
             self.get_logger().info(message)
             return True, message, False
 
-        path_parameter = f"{dog_name}_real_path"
-        executable_path = self.get_parameter(path_parameter).value
+        command_parameter = f"{dog_name}_real_command"
+        command = self.get_parameter(command_parameter).value
         try:
-            self.real_processes[dog_name] = subprocess.Popen([executable_path])
+            self.real_processes[dog_name] = subprocess.Popen(shlex.split(command))
         except Exception as exc:
             message = f"启动{dog_name}_real失败: {exc}"
             self.get_logger().error(message)
             return False, message, False
 
-        message = f"已启动{dog_name}_real: {executable_path}"
+        message = f"已启动{dog_name}_real: {command}"
         self.get_logger().info(message)
         return True, message, True
 

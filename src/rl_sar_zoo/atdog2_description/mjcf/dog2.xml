@@ -79,7 +79,7 @@
 
   <worldbody>
     <body name="base" pos="0 0 0.36" childclass="dog2">
-      <inertial pos="-0.020133 0.0076 0.064764" quat="-0.0261288 0.70973 -0.0207434 0.703684" mass="5.236" diaginertia="0.120667 0.111123 0.0238303"/>
+      <inertial pos="-0.001426 -0.0118600 0.044786" quat="0.703086 0.016393 -0.005641 -0.710894" mass="4.310" diaginertia="0.058334 0.054426 0.013012"/>
       <joint name="float_joint" type="free" limited="false" actuatorfrclimited="false"/>
       <geom type="mesh" rgba="0.84706 0.84706 0.84706 1" mesh="body_link"/>
       <site name="imu" pos="0.1 0 0" size="0.01" />

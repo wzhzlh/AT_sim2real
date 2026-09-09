@@ -1,5 +1,12 @@
 # 项目遥控器功能总表
 
+  cd ~/RL/AT_sim2real
+  source /opt/ros/$ROS_DISTRO/setup.bash
+  colcon build --packages-select go8010_ros2_driver --symlink-install
+  source install/setup.bash
+  ros2 launch go8010_ros2_driver go8010.launch.py
+
+
 这份文档汇总项目里所有和 `/remote` 有关的节点、按键 bit 语义、摇杆映射，以及 `obstacle_game` 中录制 YAML 时的按键复用逻辑。
 
 ## 1. 消息定义

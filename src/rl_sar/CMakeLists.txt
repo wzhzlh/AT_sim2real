@@ -173,6 +173,7 @@ else()
 endif()
 
 # LibTorch Setup
+option(RL_SAR_STRICT_INFERENCE_BACKENDS "Fail configure if requested inference backends are unavailable" ON)
 set(USE_TORCH "OFF")
 set(TORCH_LIBRARIES "")
 set(LIBTORCH_DIR "${INFERENCE_RUNTIME_DIR}/libtorch")
@@ -199,10 +200,30 @@ if(EXISTS "${LIBTORCH_DIR}/include" AND EXISTS "${LIBTORCH_DIR}/lib")
         message(STATUS "Torch libraries: ${TORCH_LIBRARIES}")
     else()
         set(USE_TORCH "OFF")
-        message(WARNING "LibTorch found but find_package(Torch) failed")
+        if(RL_SAR_STRICT_INFERENCE_BACKENDS)
+            message(FATAL_ERROR
+                "LibTorch was found under '${LIBTORCH_DIR}', but find_package(Torch) failed.\n"
+                "This would produce a binary that cannot load '.pt' policies.\n"
+                "Fix the local LibTorch install or disable strict checking with "
+                "-DRL_SAR_STRICT_INFERENCE_BACKENDS=OFF.")
+        else()
+            message(WARNING "LibTorch found but find_package(Torch) failed")
+        endif()
     endif()
 else()
-    message(WARNING "LibTorch not found. Please run: bash download_inference_runtime.sh libtorch")
+    message(WARNING "LibTorch not found under '${LIBTORCH_DIR}'. Please run: bash scripts/download_inference_runtime.sh libtorch")
+endif()
+
+if(RL_SAR_STRICT_INFERENCE_BACKENDS AND NOT USE_TORCH AND NOT USE_ONNX)
+    message(FATAL_ERROR
+        "No inference backend is available.\n"
+        "The build would succeed, but any RL policy load would fail at runtime.\n"
+        "Install at least one backend first:\n"
+        "  bash scripts/download_inference_runtime.sh libtorch\n"
+        "  bash scripts/download_inference_runtime.sh onnx\n"
+        "  bash scripts/download_inference_runtime.sh all\n"
+        "If you intentionally want a backend-free build, configure with "
+        "-DRL_SAR_STRICT_INFERENCE_BACKENDS=OFF.")
 endif()
 
 # RPATH Configuration for inference libraries

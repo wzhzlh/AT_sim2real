@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <numeric>
+#include <sstream>
 
 #ifdef USE_TORCH
 #include <ATen/Parallel.h>
@@ -14,6 +15,109 @@
 
 namespace InferenceRuntime
 {
+namespace
+{
+std::string model_type_to_string(ModelFactory::ModelType type)
+{
+    switch (type)
+    {
+        case ModelFactory::ModelType::TORCH:
+            return "torch";
+        case ModelFactory::ModelType::ONNX:
+            return "onnx";
+        default:
+            return "auto";
+    }
+}
+
+bool backend_compiled(ModelFactory::ModelType type)
+{
+    switch (type)
+    {
+        case ModelFactory::ModelType::TORCH:
+#ifdef USE_TORCH
+            return true;
+#else
+            return false;
+#endif
+        case ModelFactory::ModelType::ONNX:
+#ifdef USE_ONNX
+            return true;
+#else
+            return false;
+#endif
+        default:
+            return false;
+    }
+}
+
+std::string compiled_backends_message()
+{
+    std::vector<std::string> backends;
+#ifdef USE_TORCH
+    backends.emplace_back("torch(.pt/.pth)");
+#endif
+#ifdef USE_ONNX
+    backends.emplace_back("onnx(.onnx)");
+#endif
+
+    if (backends.empty())
+    {
+        return "none";
+    }
+
+    std::ostringstream oss;
+    for (size_t i = 0; i < backends.size(); ++i)
+    {
+        if (i > 0)
+        {
+            oss << ", ";
+        }
+        oss << backends[i];
+    }
+    return oss.str();
+}
+
+std::string make_backend_error(const std::string& model_path, ModelFactory::ModelType type)
+{
+    std::filesystem::path path(model_path);
+    std::ostringstream oss;
+    oss << "Model '" << model_path << "' requires " << model_type_to_string(type)
+        << " support, but this binary was compiled with backends: " << compiled_backends_message() << ".";
+
+    if (type == ModelFactory::ModelType::TORCH)
+    {
+        std::filesystem::path onnx_path = path;
+        onnx_path.replace_extension(".onnx");
+        if (std::filesystem::exists(onnx_path))
+        {
+            oss << " A compatible ONNX model exists at '" << onnx_path.string()
+                << "'. You can switch config.yaml model_name to '" << onnx_path.filename().string() << "'.";
+        }
+        else
+        {
+            oss << " Rebuild after installing LibTorch: bash scripts/download_inference_runtime.sh libtorch";
+        }
+    }
+    else if (type == ModelFactory::ModelType::ONNX)
+    {
+        std::filesystem::path torch_path = path;
+        torch_path.replace_extension(".pt");
+        if (std::filesystem::exists(torch_path))
+        {
+            oss << " A TorchScript model exists at '" << torch_path.string()
+                << "'. You can switch config.yaml model_name to '" << torch_path.filename().string() << "'.";
+        }
+        else
+        {
+            oss << " Rebuild after installing ONNX Runtime: bash scripts/download_inference_runtime.sh onnx";
+        }
+    }
+
+    return oss.str();
+}
+} // namespace
+
 
 // ============================================================================
 // TorchModel Implementation
@@ -375,13 +479,22 @@ std::unique_ptr<Model> ModelFactory::load_model(const std::string& model_path, M
         type = detect_model_type(model_path);
     }
 
+    if (!backend_compiled(type))
+    {
+        throw std::runtime_error(make_backend_error(model_path, type));
+    }
+
     // Create and load model
     auto model = create_model(type);
     if (model && model->load(model_path))
     {
         return model;
     }
-    return nullptr;
+    if (!std::filesystem::exists(model_path))
+    {
+        throw std::runtime_error("Model file does not exist: " + model_path);
+    }
+    throw std::runtime_error("Failed to load model from: " + model_path);
 }
 
 } // namespace InferenceRuntime

@@ -1,0 +1,7 @@
+go8010_driver:
+  ros__parameters:
+    port: /dev/ttyUSB0
+    baudrate: 4000000
+    response_timeout_ms: 2
+    command_timeout_ms: 100
+    cycle_hz: 250.0

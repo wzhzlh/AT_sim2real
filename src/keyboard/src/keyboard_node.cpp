@@ -1,5 +1,5 @@
 #include <rclcpp/rclcpp.hpp>
-#include <robot_msgs/msg/remote.hpp>
+#include <robot_msgs/msg/cmd.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -77,7 +77,7 @@ public:
             declare_parameter<double>("key_pulse_duration", 0.2));
         const auto publish_rate = declare_parameter<double>("publish_rate", 50.0);
 
-        remote_pub_ = create_publisher<robot_msgs::msg::Remote>("remote", 10);
+        cmd_pub_ = create_publisher<robot_msgs::msg::Cmd>("robot_move_cmd", 10);
 
         print_help();
 
@@ -98,12 +98,6 @@ public:
     }
 
 private:
-    enum class Mode {
-        Manual,
-        Auto,
-        Record,
-    };
-
     struct Axis {
         float value{0.0f};
         std::chrono::steady_clock::time_point updated{};
@@ -113,8 +107,7 @@ private:
     {
         RCLCPP_INFO(get_logger(), "Keyboard remote publisher started.");
         RCLCPP_INFO(get_logger(), "Move: w/s forward/back, a/d left/right, q/e spin.");
-        RCLCPP_INFO(get_logger(), "Modes: 2 manual, 3 auto, 1 record.");
-        RCLCPP_INFO(get_logger(), "Policy keys: z stand, x walk, c stairs, v sand, g cross_wall(bit 10), n robot_lab_slope(bit 11), b robot_lab_bar(bit 12), h robot_lab_bridge(bit 13), m record point.");
+        RCLCPP_INFO(get_logger(), "Policy keys: 1 walk, 2 stairs.");
         RCLCPP_INFO(get_logger(), "Use Ctrl-C to exit.");
     }
 
@@ -173,87 +166,33 @@ private:
                 ly_axis_ = Axis{};
                 rx_axis_ = Axis{};
                 break;
-            case '2':
-                set_mode(Mode::Manual, "manual");
-                break;
-            case '3':
-                set_mode(Mode::Auto, "auto");
-                break;
             case '1':
-                set_mode(Mode::Record, "record");
+                mode_ = 2;  // walk policy
+                RCLCPP_INFO(get_logger(), "Keyboard policy: walk (mode 2)");
                 break;
-            case 'z':
-                pulse_key_bit(4, "stand");
-                break;
-            case 'x':
-                pulse_key_bit(5, "walk");
-                break;
-            case 'c':
-                pulse_key_bit(6, "stairs");
-                break;
-            case 'v':
-                pulse_key_bit(3, "sand");
-                break;
-            case 'g':
-                pulse_key_bit(10, "cross_wall");
-                break;
-            case 'b':
-                pulse_key_bit(12, "robot_lab_bar");
-                break;
-            case 'n':
-                pulse_key_bit(11, "robot_lab_slope");
-                break;
-            case 'h':
-                pulse_key_bit(13, "robot_lab_bridge");
-                break;
-            case 'm':
-                pulse_key_bit(14, "record_point");
+            case '2':
+                mode_ = 3;  // stairs policy
+                RCLCPP_INFO(get_logger(), "Keyboard policy: stairs (mode 3)");
                 break;
             default:
                 break;
         }
     }
 
-    void set_mode(Mode mode, const std::string& name)
-    {
-        if (mode_ == mode) {
-            return;
-        }
-
-        mode_ = mode;
-        RCLCPP_INFO(get_logger(), "Keyboard mode: %s", name.c_str());
-    }
-
-    void pulse_key_bit(int index, const std::string& name)
-    {
-        pulse_bit_ = bit(index);
-        pulse_until_ = std::chrono::steady_clock::now()
-            + std::chrono::duration_cast<std::chrono::steady_clock::duration>(pulse_duration_);
-        RCLCPP_INFO(get_logger(), "Keyboard key pulse: %s (bit %d)", name.c_str(), index);
-    }
-
     void publish_remote()
     {
-        robot_msgs::msg::Remote msg;
+        robot_msgs::msg::Cmd msg;
         const auto now = std::chrono::steady_clock::now();
 
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            msg.lx = axis_value(lx_axis_, now);
-            msg.ly = axis_value(ly_axis_, now);
-            msg.rx = axis_value(rx_axis_, now);
-            msg.ry = 0.0f;
-            msg.key = mode_key_bits();
-
-            if (now <= pulse_until_) {
-                msg.key |= pulse_bit_;
-            } else {
-                pulse_bit_ = 0;
-            }
+            msg.mode = mode_;
+            msg.vx = axis_value(ly_axis_, now) / 1000.0f;
+            msg.vy = axis_value(lx_axis_, now) / 1000.0f;
+            msg.vz = axis_value(rx_axis_, now) / 1000.0f;
+            msg.wheel_vel = 0.0f;
         }
-
-        msg.just_reconnected = false;
-        remote_pub_->publish(msg);
+        cmd_pub_->publish(msg);
     }
 
     float axis_value(const Axis& axis, std::chrono::steady_clock::time_point now) const
@@ -267,20 +206,7 @@ private:
         return axis.value;
     }
 
-    uint32_t mode_key_bits() const
-    {
-        switch (mode_) {
-            case Mode::Auto:
-                return bit(1);
-            case Mode::Record:
-                return bit(2);
-            case Mode::Manual:
-            default:
-                return 0;
-        }
-    }
-
-    rclcpp::Publisher<robot_msgs::msg::Remote>::SharedPtr remote_pub_;
+    rclcpp::Publisher<robot_msgs::msg::Cmd>::SharedPtr cmd_pub_;
     rclcpp::TimerBase::SharedPtr publish_timer_;
     std::thread input_thread_;
     std::atomic_bool running_{true};
@@ -294,9 +220,7 @@ private:
     Axis lx_axis_;
     Axis ly_axis_;
     Axis rx_axis_;
-    Mode mode_{Mode::Manual};
-    uint32_t pulse_bit_{0};
-    std::chrono::steady_clock::time_point pulse_until_{};
+    int32_t mode_{0};
 };
 
 int main(int argc, char** argv)

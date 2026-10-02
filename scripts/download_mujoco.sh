@@ -268,6 +268,9 @@ else
     if [ -d "${MUJOCO_DIR}" ]; then
         print_warning "MuJoCo directory incomplete, re-downloading..."
         rm -rf "${MUJOCO_DIR}"
+    elif [ -L "${MUJOCO_DIR}" ]; then
+        print_warning "MuJoCo path is a broken symbolic link, replacing the link..."
+        rm -f "${MUJOCO_DIR}"
     fi
 fi
 

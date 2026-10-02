@@ -1,3 +1,5 @@
+> 裁剪说明：keyboard、task_game、obstacle_game_ui 已移除。下文涉及这些模块及旧版 Record 的说明属于历史内容；当前 *_record.launch.py 仅启动手动控制和遥控节点，不提供路径录制。
+
 # obstacle_game 自动导航与路径录制使用说明
 
 ## 1. 功能概述

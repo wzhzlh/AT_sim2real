@@ -1,22 +1,3 @@
-# rl_sar_zoo
+# ATDog descriptions
 
-robot description packages for rl_sar.
-
-rl_sar will automatically download this repository when needed.
-
-Support List:
-
-|Robot Name (rname:=)|Gazebo|Mujoco|
-|-|-|-|
-|Unitree-A1 (a1)|✅|❌|
-|Unitree-Go2 (go2)|✅|✅|
-|Unitree-Go2W (go2w)|✅|✅|
-|Unitree-B2 (b2)|✅|✅|
-|Unitree-B2W (b2w)|✅|✅|
-|Unitree-G1 (g1)|✅|✅|
-|FFTAI-GR1T1 (gr1t1)|✅|❌|
-|FFTAI-GR1T2 (gr1t2)|✅|❌|
-|zhinao-L4W4 (l4w4)|✅|❌|
-|Deeprobotics-Lite3 (lite3)|✅|❌|
-|DDTRobot-Tita (tita)|✅|❌|
-|AgiBot D1 (d1)|✅|✅|
+本工作区仅保留 atdog、atdog2、atdog3 的模型和场景。模型随项目维护，构建不会从上游全量下载其它机器人。

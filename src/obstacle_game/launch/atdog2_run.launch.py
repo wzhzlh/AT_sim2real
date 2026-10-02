@@ -51,15 +51,9 @@ def generate_launch_description():
         output="screen",
     )
 
-    obstacle_game_ui_run_node = Node(
-        package="obstacle_game_ui",
-        executable="obstacle_game_ui_run_node",
-        output="screen",
-    )
-
     return LaunchDescription([
         DeclareLaunchArgument("side", default_value="p1", choices=["p1", "p2"]),
         OpaqueFunction(function=_launch_setup),
         remote_node,
-        obstacle_game_ui_run_node,
+
     ])

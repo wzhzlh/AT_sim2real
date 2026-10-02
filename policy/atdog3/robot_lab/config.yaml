@@ -5,10 +5,7 @@ atdog3/robot_lab:
   model_name: "policy.pt"
   num_observations: 45
   observations: ["ang_vel", "gravity_vec", "commands", "dof_pos", "dof_vel", "actions"]
-  observations_history: [0, 1, 2, 3, 4, 5]  # 0 is the latest observation
-  observations_history_priority: "time"  # "time" or "term" priority
-  expected_history_layout: "time_major_current_to_oldest"
-  expected_policy_input_dim: 270
+  expected_policy_input_dim: 45
   clip_obs: 100.0
   clip_actions_lower: [-100.0, -100.0, -100.0,
                        -100.0, -100.0, -100.0,

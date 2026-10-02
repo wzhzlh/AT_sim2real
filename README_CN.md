@@ -1,3 +1,5 @@
+> 本工作区已裁剪为 ATDog / ATDog2 / ATDog3，保留 obstacle_game 与 remote_node。请优先阅读 [ATDog 清理与构建说明](ATDOG_CLEANUP.md)。以下为上游历史文档，其他机器人及相关命令不再适用。
+
 # rl_sar
 
 [![Ubuntu 20.04/22.04](https://img.shields.io/badge/Ubuntu-20.04/22.04-blue.svg?logo=ubuntu)](https://ubuntu.com/)

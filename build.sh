@@ -80,49 +80,9 @@ setup_gazebo_models() {
     fi
 }
 
-setup_required_submodules() {
-    print_header "[Checking Required Submodules]"
-
-    local required_submodules=("src/rl_sar/library/thirdparty/lcm")
-    local missing_submodules=()
-
-    for submodule in "${required_submodules[@]}"; do
-        if [ ! -f "${SCRIPT_DIR}/${submodule}/CMakeLists.txt" ]; then
-            missing_submodules+=("$submodule")
-        fi
-    done
-
-    if [ ${#missing_submodules[@]} -eq 0 ]; then
-        print_success "Required submodules are ready"
-        return 0
-    fi
-
-    if ! command -v git >/dev/null 2>&1; then
-        print_error "git is not installed, cannot initialize required submodules: ${missing_submodules[*]}"
-        exit 1
-    fi
-
-    if ! git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        print_error "This project is not in a git worktree; cannot initialize submodules automatically."
-        print_info "Please ensure these directories exist: ${missing_submodules[*]}"
-        exit 1
-    fi
-
-    print_warning "Missing required submodules: ${missing_submodules[*]}"
-    print_info "Initializing submodules automatically..."
-
-    git -C "$SCRIPT_DIR" submodule update --init --recursive --recommend-shallow --progress "${missing_submodules[@]}" || {
-        print_error "Failed to initialize required submodules"
-        print_info "Try running manually: git submodule update --init --recursive --recommend-shallow --progress"
-        exit 1
-    }
-
-    print_success "Required submodules initialized"
-}
-
 run_cmake_build() {
     print_header "[Running CMake Build]"
-    print_warning "NOTE: CMake build is for hardware deployment only, not for simulation."
+    print_warning "NOTE: CMake builds common libraries; ATDog hardware deployment requires ROS2."
     print_separator
 
     cmake src/rl_sar/ -B cmake_build -DUSE_CMAKE=ON
@@ -419,7 +379,6 @@ main() {
 
     # Handle MuJoCo build mode
     if [ "$mujoco_mode" = true ]; then
-        setup_required_submodules
         setup_inference_runtime
         setup_robot_descriptions
         setup_mujoco
@@ -429,7 +388,6 @@ main() {
 
     # Handle CMake build mode
     if [ "$cmake_mode" = true ]; then
-        setup_required_submodules
         setup_inference_runtime
         run_cmake_build
         exit 0
@@ -448,7 +406,6 @@ main() {
         exit 1
     fi
 
-    setup_required_submodules
     setup_inference_runtime
     setup_robot_descriptions
     setup_gazebo_models

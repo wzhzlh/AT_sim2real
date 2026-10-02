@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.5)
 project(atdog2_description VERSION 3.0.0)
 
 find_package(ament_cmake REQUIRED)
-find_package(ament_lint_auto REQUIRED)
 find_package(urdf REQUIRED)
 find_package(xacro REQUIRED)
 find_package(robot_state_publisher REQUIRED)

@@ -23,7 +23,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libspdlog-dev \
     libfmt-dev \
     libtbb-dev \
-    liblcm-dev \
     # For downloads
     curl \
     wget \

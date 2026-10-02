@@ -10,15 +10,15 @@
 
     <buildtool_depend>ament_cmake</buildtool_depend>
     <depend>rclcpp</depend>
+    <depend>rclpy</depend>
+    <depend>std_srvs</depend>
+    <depend>joint_state_broadcaster</depend>
     <depend>std_msgs</depend>
     <depend>yaml-cpp</depend>
     <depend>robot_msgs</depend>
     <depend>geometry_msgs</depend>
     <depend>robot_joint_controller</depend>
-    <depend>controller_manager</depend>
-    <depend>joint_state_controller</depend>
     <depend>robot_state_publisher</depend>
-    <depend>rospy</depend>
     <depend>kdl_parser</depend>
     <depend>orocos_kdl</depend>
 
@@ -26,15 +26,6 @@
     <build_depend>eigen</build_depend>
     <exec_depend>eigen</exec_depend>
     
-    <build_depend>qpOASES</build_depend>
-    <exec_depend>qpOASES</exec_depend>
-    
-    <build_depend>osqp</build_depend>
-    <exec_depend>osqp</exec_depend>
-
-    <build_depend>osqp-eigen</build_depend>
-    <exec_depend>osqp-eigen</exec_depend>
-
     <export>
         <build_type>ament_cmake</build_type>
     </export>

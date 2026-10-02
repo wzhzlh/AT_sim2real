@@ -12,12 +12,6 @@ def generate_launch_description():
         }],
     )
 
-    obstacle_game_ui_node = Node(
-        package="obstacle_game_ui",
-        executable="obstacle_game_ui_node",
-        output="screen",
-    )
-
     remote_node = Node(
         package="remote_node",
         executable="remote_node",
@@ -26,6 +20,5 @@ def generate_launch_description():
 
     return LaunchDescription([
         robot_control_node,
-        obstacle_game_ui_node,
         remote_node,
     ])

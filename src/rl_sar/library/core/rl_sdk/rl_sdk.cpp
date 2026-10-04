@@ -239,6 +239,19 @@ void RL::ValidateObservationConfig(const std::vector<float>& observation) const
             ", computed observation_dim=" + std::to_string(observation.size()));
     }
 
+    if (this->params.Has("expected_observations"))
+    {
+        const auto observations = this->params.Get<std::vector<std::string>>("observations");
+        const auto expected_observations = this->params.Get<std::vector<std::string>>("expected_observations");
+        if (observations != expected_observations)
+        {
+            throw std::runtime_error(
+                "Observation term order mismatch: configured observations do not match expected_observations.");
+        }
+    }
+
+    this->ValidateJointMapping();
+
     const auto observations_history = this->params.Get<std::vector<int>>("observations_history");
     const std::string history_priority = this->params.Get<std::string>("observations_history_priority", "time");
     if (history_priority != "time" && history_priority != "term")
@@ -317,7 +330,21 @@ void RL::ValidateObservationConfig(const std::vector<float>& observation) const
     }
 }
 
-void RL::ValidateLoadedModelInput(const std::string& model_path, size_t expected_input_dim) const
+void RL::ValidateJointMapping() const
+{
+    if (!this->params.Has("expected_joint_mapping"))
+    {
+        return;
+    }
+    const auto joint_mapping = this->params.Get<std::vector<int>>("joint_mapping");
+    const auto expected_joint_mapping = this->params.Get<std::vector<int>>("expected_joint_mapping");
+    if (joint_mapping != expected_joint_mapping)
+    {
+        throw std::runtime_error("Joint mapping mismatch: configured joint_mapping does not match expected_joint_mapping.");
+    }
+}
+
+void RL::ValidateLoadedModel(const std::string& model_path, size_t expected_input_dim, size_t expected_output_dim) const
 {
     if (!this->model)
     {
@@ -327,13 +354,19 @@ void RL::ValidateLoadedModelInput(const std::string& model_path, size_t expected
     std::vector<float> dummy_input(expected_input_dim, 0.0f);
     try
     {
-        (void)this->model->forward({dummy_input});
+        const auto output = this->model->forward({dummy_input});
+        if (output.size() != expected_output_dim)
+        {
+            throw std::runtime_error(
+                "model output dimension=" + std::to_string(output.size()) +
+                ", expected num_of_dofs=" + std::to_string(expected_output_dim));
+        }
     }
     catch (const std::exception& e)
     {
         throw std::runtime_error(
             "Model input dimension check failed for '" + model_path + "': configured input_dim=" +
-            std::to_string(expected_input_dim) + ", model rejected the dummy input: " + e.what());
+            std::to_string(expected_input_dim) + ", model rejected the dummy input or output: " + e.what());
     }
 }
 
@@ -361,6 +394,14 @@ void RL::InitRL(std::string robot_config_path)
     std::vector<float> initial_observation = this->ComputeObservation();
     this->ValidateObservationConfig(initial_observation);
     const size_t configured_policy_input_dim = this->GetConfiguredPolicyInputDim(initial_observation.size());
+    const int num_of_dofs = this->params.Get<int>("num_of_dofs");
+    const int expected_num_actions = this->params.Get<int>("expected_num_actions", num_of_dofs);
+    if (expected_num_actions <= 0 || expected_num_actions != num_of_dofs)
+    {
+        throw std::runtime_error(
+            "expected_num_actions must be positive and equal num_of_dofs; got expected_num_actions=" +
+            std::to_string(expected_num_actions) + ", num_of_dofs=" + std::to_string(num_of_dofs));
+    }
 
     // init obs history
     const auto& observations_history = this->params.Get<std::vector<int>>("observations_history");  // avoid dangling reference
@@ -382,7 +423,7 @@ void RL::InitRL(std::string robot_config_path)
     {
         throw std::runtime_error("Failed to load model from: " + model_path);
     }
-    this->ValidateLoadedModelInput(model_path, configured_policy_input_dim);
+    this->ValidateLoadedModel(model_path, configured_policy_input_dim, static_cast<size_t>(expected_num_actions));
 }
 
 void RL::ComputeOutput(const std::vector<float> &actions, std::vector<float> &output_dof_pos, std::vector<float> &output_dof_vel, std::vector<float> &output_dof_tau)

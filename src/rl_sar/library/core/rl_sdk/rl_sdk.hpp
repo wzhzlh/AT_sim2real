@@ -215,7 +215,6 @@ public:
     RobotState<float> start_state;
     RobotState<float> now_state;
     bool rl_init_done = false;
-    bool resume_locomotion_after_crosswall = false;
 
     // init
     void InitObservations();
@@ -225,7 +224,8 @@ public:
     void InitJointNum(size_t num_joints);
     size_t GetConfiguredPolicyInputDim(size_t observation_dim) const;
     void ValidateObservationConfig(const std::vector<float>& observation) const;
-    void ValidateLoadedModelInput(const std::string& model_path, size_t expected_input_dim) const;
+    void ValidateJointMapping() const;
+    void ValidateLoadedModel(const std::string& model_path, size_t expected_input_dim, size_t expected_output_dim) const;
 
     // rl functions
     virtual std::vector<float> Forward() = 0;

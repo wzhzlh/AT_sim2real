@@ -58,7 +58,6 @@ bool check_key_pressed(uint32_t current_key, int index)
 | `5` | walk 策略，或自动流程中的启动 |
 | `6` | stairs 策略，或自动流程中的暂停 |
 | `9` | `obstacle_game` 录点复用修饰键 |
-| `10` | cross_wall 策略 |
 | `11` | slope 策略，或在 `bit 9` 条件下作为录点选项 |
 | `12` | bar 策略 |
 | `13` | bridge 策略，或在 `bit 9` 条件下作为录点选项 |

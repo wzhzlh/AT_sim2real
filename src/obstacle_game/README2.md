@@ -48,7 +48,6 @@
   - `bit 11`：斜坡策略，`mode=5`。
   - `bit 12`：限高杆策略，`mode=6`。
   - `bit 13`：木桥策略，`mode=7`。
-  - `bit 10`：翻墙策略，`mode=8`。
   - 手动模式下若同时处于录制状态并按住 `bit 9`，`bit 11` 与 `bit 13` 不再切换策略，而是作为下一录制点的修饰键。
 - 自动模式下的常用按键：
   - `bit 4`：复位并停止自动导航。
@@ -168,7 +167,6 @@ ros2 topic echo /robot_move_cmd
 | 4 | `z` | **stand（位控站立/复位）** | 手动模式：切换到位控站立 (mode=1)；自动模式：复位并停止导航 | 手动模式：切换到位控站立 (mode=1)；自动调试模式：推进一次行为树阶段 |
 | 5 | `x` | **walk（普通行走/开始导航）** | 手动模式：切换到普通行走 (mode=2)；自动模式：开始自动导航，启动前要求已有有效 `map -> base_link` 位姿 | 手动模式：切换到普通行走 (mode=2) |
 | 6 | `c` | **stairs（台阶策略/暂停导航）** | 手动模式：切换到台阶策略 (mode=3)；自动模式：暂停自动导航 | 不支持 |
-| 10 | `g` | **cross_wall（翻墙模式）** | 切换到翻墙策略 (mode=8) | 不支持 |
 | 11 | `n` | **robot_lab_slope（斜坡模式）/yaw lock 录制选项** | 普通手动：切换到斜坡策略 (mode=5)；录制状态且 bit 9 按下：下一录制点写入 `constraint_target_yaw=true`、`allow_y_vel=true` | 不支持 |
 | 12 | `b` | **robot_lab_bar（限高杆模式）** | 切换到限高杆策略 (mode=6) | 切换到限高杆策略 (mode=6) |
 | 13 | `h` | **robot_lab_bridge（木桥模式）/stand 录制选项** | 普通手动：切换到木桥策略 (mode=7)；录制状态且 bit 9 按下：下一录制点写入 `stand_at_target=true`、`stand_duration=2` | 不支持 |
@@ -342,7 +340,6 @@ bool check_key_pressed(uint32_t current_key, int index) {
 | 5 | `check_key_trigger` | 手动: 普通行走 (mode=2)；自动: 开始自动导航 | 上升沿触发 |
 | 6 | `check_key_trigger` | 手动: 台阶策略 (mode=3)；自动: 暂停自动导航 | 上升沿触发 |
 | 9 | `check_key_pressed` | 录制选项修饰键 | 录制模式下配合 bit 11 / bit 13 使用 |
-| 10 | `check_key_trigger` | 翻墙策略 (mode=8) | 上升沿触发 |
 | 11 | `check_key_trigger` | 斜坡策略 (mode=5) / 下一录制点锁航向 | 普通手动为斜坡；录制模式且 bit 9 按下时写入 `constraint_target_yaw=true`、`allow_y_vel=true` |
 | 12 | `check_key_trigger` | 限高杆策略 (mode=6) | 上升沿触发 |
 | 13 | `check_key_trigger` | 木桥策略 (mode=7) / 下一录制点站立等待 | 普通手动为木桥；录制模式且 bit 9 按下时写入 `stand_at_target=true`、`stand_duration=2` |

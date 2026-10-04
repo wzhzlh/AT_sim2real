@@ -10,8 +10,6 @@
 #include "rl_sdk.hpp"
 #include <Eigen/Dense>
 #include <cmath>  // for std::isnan, std::isinf
-#include "bridge_B.hpp"
-#include "cross_wall_atdog2.hpp"
 namespace atdog2_fsm
 {
 
@@ -40,9 +38,6 @@ inline std::string ResolveRemoteModeState(int mode, const std::string& current_s
             break;
         case 7:
             target_state = "RLFSMStateRLBridge";
-            break;
-        case 8:
-            target_state = "RLFSMStateCrosswall";
             break;
         case 9:
             if (current_state == "RLFSMStateGetUp")
@@ -164,11 +159,6 @@ public:
         }
         if (percent_getup >= 1.0f)
         {
-            if (rl.resume_locomotion_after_crosswall)
-            {
-                rl.resume_locomotion_after_crosswall = false;
-                return "RLFSMStateRLLocomotion";
-            }
             if (rl.control.current_keyboard == Input::Keyboard::Num1 || rl.control.current_gamepad == Input::Gamepad::RB_DPadUp)
             {
                 return "RLFSMStateRLLocomotion";
@@ -176,14 +166,6 @@ public:
             else if (rl.control.current_keyboard == Input::Keyboard::Num9 || rl.control.current_gamepad == Input::Gamepad::B)
             {
                 return "RLFSMStateGetDown";
-            }
-            else if (rl.control.current_keyboard == Input::Keyboard::Num5 || rl.control.current_gamepad == Input::Gamepad::LB_DPadDown)
-            {
-                return "RLFSMStateCrosswall";
-            }
-            else if (rl.control.current_keyboard == Input::Keyboard::Num4)
-            {
-                return "RLFSMStateBridgeB";
             }
             else if (rl.control.current_keyboard == Input::Keyboard::Num7 || rl.control.current_gamepad == Input::Gamepad::Y)
             {
@@ -288,203 +270,12 @@ public:
     }
 };
 
-class RLFSMStateCrosswall : public RLFSMState {
-
-
-public:
-    int num_dofs;
-    std::shared_ptr<CrossWallStateAtdog2> cross_wall_state;
-    RLFSMStateCrosswall(RL *rl) : RLFSMState(*rl, "RLFSMStateCrosswall") {
-        std::string urdf_path = "src/rl_sar_zoo/" + rl->robot_name + "_description/urdf/dog2.urdf";
-        cross_wall_state = std::make_shared<CrossWallStateAtdog2>(urdf_path);
-    }
-    
-    
-
-    void Enter() override
-    {
-        rl.now_state = *fsm_state;
-        num_dofs = rl.params.Get<int>("num_of_dofs");
-        cross_wall_state->enter();
-        
-    }
-
-    void Run() override
-    {
-        for (int i = 0; i < num_dofs; ++i)
-        {
-            int leg_index = i / 3;    // ✅ atdog2 是 3 关节/腿
-            int jonit_index = i % 3;  // ✅ 索引范围 0-2
-            // 获取当前电机状态
-            switch (leg_index) 
-            {
-                case 0:
-                    cross_wall_state->robot->rf_joint_pos[jonit_index] = fsm_state->motor_state.q[i];      // 位置
-                    cross_wall_state->robot->rf_joint_vel[jonit_index] = fsm_state->motor_state.dq[i];    // 速度
-                break;
-                case 1:
-                    cross_wall_state->robot->lf_joint_pos[jonit_index] = fsm_state->motor_state.q[i];      
-                    cross_wall_state->robot->lf_joint_vel[jonit_index] = fsm_state->motor_state.dq[i];
-                break;
-                case 3:
-                    cross_wall_state->robot->lb_joint_pos[jonit_index] = fsm_state->motor_state.q[i];
-                    cross_wall_state->robot->lb_joint_vel[jonit_index] = fsm_state->motor_state.dq[i];
-                break;
-                case 2:
-                    cross_wall_state->robot->rb_joint_pos[jonit_index] = fsm_state->motor_state.q[i];
-                    cross_wall_state->robot->rb_joint_vel[jonit_index] = fsm_state->motor_state.dq[i];
-                break;
-                default:
-                    break;
-            }
-            
-        }
-        RobotTarget joints_target;
-        joints_target = cross_wall_state->update();
-        for (int i = 0; i < num_dofs; ++i)
-        {
-            int leg_index = i / 3;    // ✅ atdog2 是 3 关节/腿
-            int jonit_index = i % 3;  // ✅ 索引范围 0-2
-            
-            // 防止 NaN 或 Inf 值
-            float q_val = joints_target.legs[leg_index].joints[jonit_index].rad;
-            float dq_val = joints_target.legs[leg_index].joints[jonit_index].omega;
-            float kp_val = joints_target.legs[leg_index].joints[jonit_index].kp;
-            float kd_val = joints_target.legs[leg_index].joints[jonit_index].kd;
-
-            
-            // 检查并修正无效值
-            // if (std::isnan(q_val) || std::isinf(q_val)) q_val = 0.0f;
-            // if (std::isnan(dq_val) || std::isinf(dq_val)) dq_val = 0.0f;
-            // if (std::isnan(kp_val) || std::isinf(kp_val)) kp_val = 0.0f;
-            // if (std::isnan(kd_val) || std::isinf(kd_val)) kd_val = 0.0f;
-            
-            fsm_command->motor_command.q[i] = q_val;
-            fsm_command->motor_command.dq[i] = dq_val;
-            fsm_command->motor_command.kp[i] = kp_val;
-            fsm_command->motor_command.kd[i] = kd_val;
-            fsm_command->motor_command.tau[i] = joints_target.legs[leg_index].joints[jonit_index].torque;
-        }
-    }
-
-    void Exit() override {}
-
-    std::string CheckChange() override
-    {
-        const std::string remote_target = ResolveRemoteModeState(rl.control.mode, state_name_);
-        if (remote_target != state_name_)
-        {
-            rl.resume_locomotion_after_crosswall = false;
-            cross_wall_state->RL_walk_flag = false;
-            cross_wall_state->Cross_wall_over = false;
-            cross_wall_state->change_flag = true;
-            cross_wall_state->cross_wall_stage = -1;
-            return remote_target;
-        }
-        if(cross_wall_state->RL_walk_flag == true)
-        {
-            rl.resume_locomotion_after_crosswall = false;
-            cross_wall_state->RL_walk_flag = false;
-            cross_wall_state->cross_wall_stage = 13;
-            return "RLFSMStateRLLocomotion";
-        }
-        if(cross_wall_state->Cross_wall_over == true)
-        {
-            rl.resume_locomotion_after_crosswall = true;
-            cross_wall_state->Cross_wall_over = false;
-            cross_wall_state->cross_wall_stage = -1;
-            return "RLFSMStateGetUp";
-        }
-        
-        return state_name_;
-    }
-};
-
-class RLFSMStateBridgeB : public RLFSMState {
-public:
-    int num_dofs;
-    std::shared_ptr<BridgeBStateAtdog2> bridge_b_state;
-
-    RLFSMStateBridgeB(RL *rl) : RLFSMState(*rl, "RLFSMStateBridgeB") {
-        std::string urdf_path = "src/rl_sar_zoo/" + rl->robot_name + "_description/urdf/dog2.urdf";
-        bridge_b_state = std::make_shared<BridgeBStateAtdog2>(urdf_path);
-    }
-
-    void Enter() override
-    {
-        rl.now_state = *fsm_state;
-        num_dofs = rl.params.Get<int>("num_of_dofs");
-        bridge_b_state->enter();
-    }
-
-    void Run() override
-    {
-        for (int i = 0; i < num_dofs; ++i)
-        {
-            int leg_index = i / 3;
-            int joint_index = i % 3;
-            switch (leg_index)
-            {
-                case 0:
-                    bridge_b_state->robot->rf_joint_pos[joint_index] = fsm_state->motor_state.q[i];
-                    bridge_b_state->robot->rf_joint_vel[joint_index] = fsm_state->motor_state.dq[i];
-                    break;
-                case 1:
-                    bridge_b_state->robot->lf_joint_pos[joint_index] = fsm_state->motor_state.q[i];
-                    bridge_b_state->robot->lf_joint_vel[joint_index] = fsm_state->motor_state.dq[i];
-                    break;
-                case 2:
-                    bridge_b_state->robot->rb_joint_pos[joint_index] = fsm_state->motor_state.q[i];
-                    bridge_b_state->robot->rb_joint_vel[joint_index] = fsm_state->motor_state.dq[i];
-                    break;
-                case 3:
-                    bridge_b_state->robot->lb_joint_pos[joint_index] = fsm_state->motor_state.q[i];
-                    bridge_b_state->robot->lb_joint_vel[joint_index] = fsm_state->motor_state.dq[i];
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        RobotTarget joints_target = bridge_b_state->update();
-        for (int i = 0; i < num_dofs; ++i)
-        {
-            int leg_index = i / 3;
-            int joint_index = i % 3;
-            fsm_command->motor_command.q[i] = joints_target.legs[leg_index].joints[joint_index].rad;
-            fsm_command->motor_command.dq[i] = joints_target.legs[leg_index].joints[joint_index].omega;
-            fsm_command->motor_command.kp[i] = joints_target.legs[leg_index].joints[joint_index].kp;
-            fsm_command->motor_command.kd[i] = joints_target.legs[leg_index].joints[joint_index].kd;
-            fsm_command->motor_command.tau[i] = joints_target.legs[leg_index].joints[joint_index].torque;
-        }
-    }
-
-    void Exit() override {}
-
-    std::string CheckChange() override
-    {
-        if (bridge_b_state->bridge_over == true)
-        {
-            bridge_b_state->bridge_over = false;
-            bridge_b_state->bridge_stage = -1;
-            return "RLFSMStateGetUp";
-        }
-        if (rl.control.current_keyboard == Input::Keyboard::P || rl.control.current_gamepad == Input::Gamepad::LB_X)
-        {
-            return "RLFSMStatePassive";
-        }
-        return state_name_;
-    }
-};
-
 class RLFSMStateRLLocomotion : public RLFSMState
 {
 public:
     RLFSMStateRLLocomotion(RL *rl) : RLFSMState(*rl, "RLFSMStateRLLocomotion") {}
 
     float percent_transition = 0.0f;
-    std::chrono::steady_clock::time_point cross_enter_time = std::chrono::steady_clock::now();
-    bool RL_to_Cross = false;
 
     void Enter() override
     {
@@ -504,12 +295,6 @@ public:
             std::cout << LOGGER::ERROR << "InitRL() failed: " << e.what() << std::endl;
             rl.rl_init_done = false;
             rl.fsm.RequestStateChange("RLFSMStatePassive");
-        }
-        if (rl.fsm.previous_state_->GetStateName() == "RLFSMStateCrosswall")
-        {
-            cross_enter_time = std::chrono::steady_clock::now();
-            RL_to_Cross = true;
-            rl.control.setVel(0.4f, 0.0f, 0.0f);
         }
     }
 
@@ -531,12 +316,6 @@ public:
 
     std::string CheckChange() override
     {
-        if((std::chrono::steady_clock::now() - cross_enter_time > std::chrono::milliseconds(3000)) && RL_to_Cross)
-        {
-            RL_to_Cross = false;
-            rl.control.setVel(0.0f, 0.0f, 0.0f);
-            return "RLFSMStateCrosswall";
-        }
         if (rl.control.current_keyboard == Input::Keyboard::P || rl.control.current_gamepad == Input::Gamepad::LB_X)
         {
             return "RLFSMStatePassive";
@@ -552,14 +331,6 @@ public:
         else if (rl.control.current_keyboard == Input::Keyboard::Num1 || rl.control.current_gamepad == Input::Gamepad::RB_DPadUp)
         {
             return "RLFSMStateRLLocomotion";
-        }
-        else if (rl.control.current_keyboard == Input::Keyboard::Num5 || rl.control.current_gamepad == Input::Gamepad::RB_DPadDown)
-        {
-            return "RLFSMStateCrosswall";
-        }
-        else if (rl.control.current_keyboard == Input::Keyboard::Num4)
-        {
-            return "RLFSMStateBridgeB";
         }
 
         return ResolveRemoteModeState(rl.control.mode, state_name_);
@@ -915,10 +686,6 @@ public:
             return std::make_shared<atdog2_fsm::RLFSMStateRLStairs>(rl);
         else if (state_name == "RLFSMStateRLSand")
             return std::make_shared<atdog2_fsm::RLFSMStateRLSand>(rl);
-        else if (state_name == "RLFSMStateCrosswall")
-            return std::make_shared<atdog2_fsm::RLFSMStateCrosswall>(rl);
-        else if (state_name == "RLFSMStateBridgeB")
-            return std::make_shared<atdog2_fsm::RLFSMStateBridgeB>(rl);
         else if (state_name == "RLFSMStateRLBar")
             return std::make_shared<atdog2_fsm::RLFSMStateRLBar>(rl);
         else if (state_name == "RLFSMStateRLSlope")
@@ -939,8 +706,6 @@ public:
             "RLFSMStateRLLocomotion",
             "RLFSMStateRLStairs",
             "RLFSMStateRLSand",
-            "RLFSMStateCrosswall",
-            "RLFSMStateBridgeB",
             "RLFSMStateRLBar",
             "RLFSMStateRLSlope",
             "RLFSMStateRLBridge",

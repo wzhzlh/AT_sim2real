@@ -41,5 +41,13 @@
 
     <geom name="platform" type="box" size="0.5 5 0.2" pos="6.7 0 0.2" rgba="0.8 0.8 0.8 1"/>
   </body>
+
+  <!-- 斜坡：机器人后方(-X)1m处，倾角15度，坡面朝向机器人(沿-X上升)
+       注意：dog2.xml 的 compiler angle="radian" 会全局生效，euler 会被当成弧度，
+       因此这里用四元数表示绕Y轴+15°旋转: (cos7.5°, 0, sin7.5°, 0) -->
+  <body name="slope">
+    <geom name="slope_ramp" type="box" size="1.0 1.0 0.05" pos="-1.9789 0 0.2105" quat="0.991445 0 0.130526 0"
+      rgba="0.85 0.6 0.35 1" contype="1" conaffinity="1"/>
+  </body>
 </worldbody>
 </mujoco>

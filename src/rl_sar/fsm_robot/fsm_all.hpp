@@ -9,5 +9,6 @@
 #include "fsm_atdog.hpp"
 #include "fsm_atdog2.hpp"
 #include "fsm_atdog3.hpp"
+#include "fsm_arm1.hpp"
 
 #endif // FSM_ALL_HPP

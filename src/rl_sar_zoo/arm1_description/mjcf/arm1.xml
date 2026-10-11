@@ -1,0 +1,86 @@
+<mujoco model="at_arm1">
+  <compiler angle="radian" meshdir="../meshes" autolimits="true"/>
+  <option timestep="0.001" integrator="implicitfast" gravity="0 0 -9.81"/>
+  <default>
+    <joint damping="0.02" armature="0.01" limited="true"/>
+    <geom condim="3" friction="0.8 0.02 0.002" density="0"/>
+    <default class="arm_visual">
+      <geom contype="0" conaffinity="0"/>
+    </default>
+    <motor ctrllimited="true"/>
+  </default>
+  <asset>
+    <mesh name="base_link" file="base_link.STL"/>
+    <mesh name="link1" file="link1.STL"/>
+    <mesh name="link2" file="link2.STL"/>
+    <mesh name="link3" file="link3.STL"/>
+    <mesh name="link4" file="link4.STL"/>
+    <mesh name="link5" file="link5.STL"/>
+    <mesh name="link6" file="link6.STL"/>
+  </asset>
+  <contact>
+    <exclude body1="base_link" body2="link1"/>
+    <exclude body1="link1" body2="link2"/>
+    <exclude body1="link2" body2="link3"/>
+    <exclude body1="link3" body2="link4"/>
+    <exclude body1="link4" body2="link5"/>
+    <exclude body1="link5" body2="link6"/>
+  </contact>
+  <worldbody>
+    <body name="base_link">
+      <inertial pos="-0.0091691 0.00025382 0.018962" mass="1.0998" fullinertia="0.0018714 0.0021258 0.0039568 5.0546e-6 8.4992e-8 1.3828e-7"/>
+      <geom class="arm_visual" type="mesh" mesh="base_link" rgba="0.29 0.29 0.29 1"/>
+      <site name="imu_site"/>
+      <body name="link1">
+        <inertial pos="0.00000743 0.0238891 0.0983534" mass="2.349568" fullinertia="0.00573875 0.00814596 0.00840986 -2.0036e-7 1.055e-6 2.4054e-5"/>
+        <joint name="joint1" axis="0 0 1" range="-1.8 1.8"/>
+        <geom class="arm_visual" type="mesh" mesh="link1" rgba="0.29 0.29 0.29 1"/>
+        <body name="link2" pos="0 0.03675 0.153" quat="0.499998 0.5 -0.5 0.500002">
+          <inertial pos="0.313246 -0.000831742 0.0364273" mass="1.237271" fullinertia="0.000574699 0.0139531 0.0142113 6.7862e-7 6.5283e-5 1.7302e-6"/>
+          <joint name="joint2" axis="0 0 1" range="-1.570796327 1.570796327"/>
+          <geom class="arm_visual" type="mesh" mesh="link2" rgba="0.90 0.92 0.93 1"/>
+          <body name="link3" pos="0.52 0 0.08565">
+            <inertial pos="0.271921 -0.000176719 -0.0120139" mass="0.370266" fullinertia="0.000130367 0.00267675 0.00278033 6.8905e-7 -1.949e-6 -1.7333e-7"/>
+            <joint name="joint3" axis="0 0 1" range="-2.9 2.9"/>
+            <geom class="arm_visual" type="mesh" mesh="link3" rgba="0.90 0.92 0.93 1"/>
+            <body name="link4" pos="0.436 0 0.0225">
+              <inertial pos="0.101739 0.0561669 -0.0293842" mass="1.541772" fullinertia="0.000889042 0.000902754 0.000270000 -2.0098e-6 1.1456e-5 4.2513e-8"/>
+              <joint name="joint4" axis="0 0 1" range="-2.0 1.8"/>
+              <geom class="arm_visual" type="mesh" mesh="link4" rgba="0.29 0.29 0.29 1"/>
+              <body name="link5" pos="0.07761 -0.0058889 -0.03035" euler="-1.5708 0 0">
+                <inertial pos="0.0486577 0.00239487 0.000127055" mass="0.0698722" fullinertia="0.0000156377 0.0000197786 0.0000226008 -2.126e-7 0 0"/>
+                <joint name="joint5" axis="0 0 1" range="-0.610865 0.610865"/>
+                <geom class="arm_visual" type="mesh" mesh="link5" rgba="0.29 0.29 0.29 1"/>
+                <body name="link6" pos="0.073796 0.0036822 0.000088922" euler="0 -1.5708 3.1415927">
+                  <inertial pos="0 0 0.0193009" mass="0.128099" fullinertia="0.0000647697 0.0000647697 0.0000958412 0 0 0"/>
+                  <geom class="arm_visual" type="mesh" mesh="link6" rgba="1 1 1 1"/>
+                  <site name="ee_site" pos="0 0 0.02"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="motor1" joint="joint1" gear="1" ctrlrange="-36 36"/>
+    <motor name="motor2" joint="joint2" gear="1" ctrlrange="-60 60"/>
+    <motor name="motor3" joint="joint3" gear="1" ctrlrange="-17 17"/>
+    <motor name="motor4" joint="joint4" gear="1" ctrlrange="-17 17"/>
+    <motor name="motor5" joint="joint5" gear="1" ctrlrange="-6 6"/>
+  </actuator>
+  <sensor>
+    <actuatorpos name="motor1_p" actuator="motor1"/><actuatorpos name="motor2_p" actuator="motor2"/>
+    <actuatorpos name="motor3_p" actuator="motor3"/><actuatorpos name="motor4_p" actuator="motor4"/>
+    <actuatorpos name="motor5_p" actuator="motor5"/>
+    <actuatorvel name="motor1_v" actuator="motor1"/><actuatorvel name="motor2_v" actuator="motor2"/>
+    <actuatorvel name="motor3_v" actuator="motor3"/><actuatorvel name="motor4_v" actuator="motor4"/>
+    <actuatorvel name="motor5_v" actuator="motor5"/>
+    <actuatorfrc name="motor1_f" actuator="motor1"/><actuatorfrc name="motor2_f" actuator="motor2"/>
+    <actuatorfrc name="motor3_f" actuator="motor3"/><actuatorfrc name="motor4_f" actuator="motor4"/>
+    <actuatorfrc name="motor5_f" actuator="motor5"/>
+    <framequat name="base_quat" objtype="site" objname="imu_site"/>
+    <gyro name="base_gyro" site="imu_site"/>
+  </sensor>
+</mujoco>

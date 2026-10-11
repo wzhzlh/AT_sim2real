@@ -1,0 +1,19 @@
+arm1:
+  num_of_dofs: 5
+  dt: 0.001
+  decimation: 33
+  joint_mapping: [0, 1, 2, 3, 4]
+  expected_joint_mapping: [0, 1, 2, 3, 4]
+  fixed_kp: [180, 105, 13.5, 170.5, 180]
+  fixed_kd: [0, 30.08, 0, 0, 0]
+  sim_controller: lower_cascade_pid
+  lower_pos_kp: [30, 7, 5, 55, 60]
+  lower_pos_ki: [0, 0, 0, 0, 0]
+  lower_pos_kd: [0, 2, 0, 0, 0]
+  lower_pos_integral_limit: [100, 100, 500, 20, 0]
+  lower_pos_output_limit: [5, 4, 2.5, 20, 30]
+  lower_vel_kp: [6, 15, 2.7, 3.1, 3]
+  lower_vel_ki: [0.4, 0.08, 0.1, 0.5, 0.3]
+  lower_vel_kd: [0, 0, 0, 0, 0]
+  lower_vel_integral_limit: [50, 100, 70, 20, 10]
+  lower_vel_output_limit: [20, 30, 15, 10, 2]

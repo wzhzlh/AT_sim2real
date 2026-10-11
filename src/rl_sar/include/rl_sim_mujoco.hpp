@@ -84,6 +84,10 @@ private:
     mjData *mj_data;
     mjModel *mj_model;
     std::string scene_name;
+    std::vector<float> arm_pos_pid_integral_;
+    std::vector<float> arm_pos_pid_previous_error_;
+    std::vector<float> arm_vel_pid_integral_;
+    std::vector<float> arm_vel_pid_previous_error_;
 
     // joystick
     std::unique_ptr<Joystick> sys_js;

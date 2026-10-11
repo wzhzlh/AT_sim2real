@@ -5,6 +5,8 @@
 
 #include "rl_sim_mujoco.hpp"
 
+#include <algorithm>
+
 RL_Sim* RL_Sim::instance = nullptr;
 
 namespace
@@ -83,6 +85,7 @@ RL_Sim::RL_Sim(int argc, char **argv)
     sim = std::make_unique<mj::Simulate>(
         std::make_unique<mj::GlfwAdapter>(),
         &cam, &opt, &pert, /* is_passive = */ false);
+    sim->run = 0;
 
     std::string filename = std::string(CMAKE_CURRENT_SOURCE_DIR) + "/../rl_sar_zoo/" + this->robot_name + "_description/mjcf/" + this->scene_name + ".xml";
 
@@ -126,6 +129,9 @@ RL_Sim::RL_Sim(int argc, char **argv)
     this->InitOutputs();
     this->InitControl();
 
+    // Apply the initial hold command before allowing gravity to advance the model.
+    this->RobotControl();
+
     // loop
     this->loop_control = std::make_shared<LoopFunc>("loop_control", this->params.Get<float>("dt"), std::bind(&RL_Sim::RobotControl, this));
     this->loop_rl = std::make_shared<LoopFunc>("loop_rl", this->params.Get<float>("dt") * this->params.Get<int>("decimation"), std::bind(&RL_Sim::RunModel, this));
@@ -139,6 +145,11 @@ RL_Sim::RL_Sim(int argc, char **argv)
     // joystick
     this->loop_joystick = std::make_shared<LoopFunc>("loop_joystick", 0.01, std::bind(&RL_Sim::GetSysJoystick, this));
     this->loop_joystick->start();
+
+    {
+        const std::lock_guard<std::recursive_mutex> lock(sim->mtx);
+        sim->run = 1;
+    }
 
 #ifdef PLOT
     this->plot_t = std::vector<int>(this->plot_size, 0);
@@ -202,6 +213,74 @@ void RL_Sim::SetCommand(const RobotCommand<float> *command)
 {
     if (mj_data)
     {
+        if (this->robot_name == "arm1" && this->params.Get<std::string>("sim_controller") == "lower_cascade_pid")
+        {
+            const int num_joints = this->params.Get<int>("num_of_dofs");
+            if (arm_pos_pid_integral_.size() != static_cast<size_t>(num_joints))
+            {
+                arm_pos_pid_integral_.assign(num_joints, 0.0f);
+                arm_pos_pid_previous_error_.assign(num_joints, 0.0f);
+                arm_vel_pid_integral_.assign(num_joints, 0.0f);
+                arm_vel_pid_previous_error_.assign(num_joints, 0.0f);
+            }
+
+            const auto pos_kp = this->params.Get<std::vector<float>>("lower_pos_kp");
+            const auto pos_ki = this->params.Get<std::vector<float>>("lower_pos_ki");
+            const auto pos_kd = this->params.Get<std::vector<float>>("lower_pos_kd");
+            const auto pos_i_limit = this->params.Get<std::vector<float>>("lower_pos_integral_limit");
+            const auto pos_out_limit = this->params.Get<std::vector<float>>("lower_pos_output_limit");
+            const auto vel_kp = this->params.Get<std::vector<float>>("lower_vel_kp");
+            const auto vel_ki = this->params.Get<std::vector<float>>("lower_vel_ki");
+            const auto vel_kd = this->params.Get<std::vector<float>>("lower_vel_kd");
+            const auto vel_i_limit = this->params.Get<std::vector<float>>("lower_vel_integral_limit");
+            const auto vel_out_limit = this->params.Get<std::vector<float>>("lower_vel_output_limit");
+            const auto joint_mapping = this->params.Get<std::vector<int>>("joint_mapping");
+
+            for (int i = 0; i < num_joints; ++i)
+            {
+                const int actuator = joint_mapping[i];
+                const float q = static_cast<float>(mj_data->sensordata[actuator]);
+                const float dq = static_cast<float>(mj_data->sensordata[actuator + num_joints]);
+                const float pos_error = command->motor_command.q[i] - q;
+                if (simulation_running)
+                {
+                    arm_pos_pid_integral_[i] = std::clamp(
+                        arm_pos_pid_integral_[i] + pos_error, -pos_i_limit[i], pos_i_limit[i]);
+                }
+                const float desired_velocity = std::clamp(
+                    pos_kp[i] * pos_error + pos_ki[i] * arm_pos_pid_integral_[i] +
+                        pos_kd[i] * (pos_error - arm_pos_pid_previous_error_[i]),
+                    -pos_out_limit[i], pos_out_limit[i]);
+                if (simulation_running)
+                {
+                    arm_pos_pid_previous_error_[i] = pos_error;
+                }
+
+                const float vel_error = command->motor_command.dq[i] + desired_velocity - dq;
+                if (simulation_running)
+                {
+                    arm_vel_pid_integral_[i] = std::clamp(
+                        arm_vel_pid_integral_[i] + vel_error, -vel_i_limit[i], vel_i_limit[i]);
+                }
+                float torque = vel_kp[i] * vel_error + vel_ki[i] * arm_vel_pid_integral_[i] +
+                               vel_kd[i] * (vel_error - arm_vel_pid_previous_error_[i]) +
+                               command->motor_command.tau[i];
+                if (simulation_running)
+                {
+                    arm_vel_pid_previous_error_[i] = vel_error;
+                }
+                torque = std::clamp(torque, -vel_out_limit[i], vel_out_limit[i]);
+                if (mj_model->actuator_ctrllimited[actuator])
+                {
+                    torque = std::clamp(torque,
+                                        static_cast<float>(mj_model->actuator_ctrlrange[2 * actuator]),
+                                        static_cast<float>(mj_model->actuator_ctrlrange[2 * actuator + 1]));
+                }
+                mj_data->ctrl[actuator] = torque;
+            }
+            return;
+        }
+
         for (int i = 0; i < this->params.Get<int>("num_of_dofs"); ++i)
         {
             mj_data->ctrl[this->params.Get<std::vector<int>>("joint_mapping")[i]] =
@@ -356,6 +435,36 @@ void RL_Sim::RunModel()
 {
     if (this->rl_init_done && simulation_running)
     {
+        {
+            const std::lock_guard<std::recursive_mutex> lock(sim->mtx);
+            const int target_body_id = mj_name2id(this->mj_model, mjOBJ_BODY, "ee_target");
+            if (target_body_id >= 0)
+            {
+                const int mocap_id = this->mj_model->body_mocapid[target_body_id];
+                if (mocap_id >= 0)
+                {
+                    const auto position_lower = this->params.Get<std::vector<float>>("pose_command_position_lower");
+                    const auto position_upper = this->params.Get<std::vector<float>>("pose_command_position_upper");
+                    const auto target_pose = this->params.Get<std::vector<float>>("ee_pose");
+                    for (int axis = 0; axis < 3; ++axis)
+                    {
+                        auto& target_position = this->mj_data->mocap_pos[3 * mocap_id + axis];
+                        target_position = std::clamp(target_position,
+                                                     static_cast<mjtNum>(position_lower[axis]),
+                                                     static_cast<mjtNum>(position_upper[axis]));
+                    }
+                    for (int axis = 0; axis < 4; ++axis)
+                    {
+                        this->mj_data->mocap_quat[4 * mocap_id + axis] = target_pose[axis + 3];
+                    }
+                    this->obs.pose_command = {
+                        static_cast<float>(this->mj_data->mocap_pos[3 * mocap_id + 0]),
+                        static_cast<float>(this->mj_data->mocap_pos[3 * mocap_id + 1]),
+                        static_cast<float>(this->mj_data->mocap_pos[3 * mocap_id + 2]),
+                        target_pose[3], target_pose[4], target_pose[5], target_pose[6]};
+                }
+            }
+        }
         this->episode_length_buf += 1;
         this->obs.ang_vel = this->robot_state.imu.gyroscope;
         this->obs.commands = {this->control.x, this->control.y, this->control.yaw};

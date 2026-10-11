@@ -110,6 +110,17 @@ std::vector<float> RL::ComputeObservation()
         {
             obs_list.push_back(this->obs.actions);
         }
+        else if (observation == "pose_command")
+        {
+            const auto pose_command = this->obs.pose_command.empty()
+                ? this->params.Get<std::vector<float>>("ee_pose")
+                : this->obs.pose_command;
+            if (pose_command.size() != 7)
+            {
+                throw std::runtime_error("ee_pose must contain [x, y, z, qw, qx, qy, qz]");
+            }
+            obs_list.push_back(pose_command);
+        }
         // ============= Other Observations =============
         else if (observation == "whole_body_tracking/motion_command")
         {
@@ -178,8 +189,8 @@ std::vector<float> RL::ComputeObservation()
     {
         obs.insert(obs.end(), obs_vec.begin(), obs_vec.end());
     }
-    std::vector<float> clamped_obs = clamp(obs, -this->params.Get<float>("clip_obs"), this->params.Get<float>("clip_obs"));
-    return clamped_obs;
+    const float clip_obs = this->params.Get<float>("clip_obs");
+    return clip_obs > 0.0f ? clamp(obs, -clip_obs, clip_obs) : obs;
 }
 
 void RL::InitObservations()
@@ -194,6 +205,7 @@ void RL::InitObservations()
     this->obs.dof_vel.resize(this->params.Get<int>("num_of_dofs"), 0.0f);
     this->obs.actions.clear();
     this->obs.actions.resize(this->params.Get<int>("num_of_dofs"), 0.0f);
+    this->obs.pose_command = this->params.Get<std::vector<float>>("ee_pose");
     this->ComputeObservation();
 }
 
@@ -438,6 +450,12 @@ void RL::ComputeOutput(const std::vector<float> &actions, std::vector<float> &ou
     }
     std::vector<float> all_actions_scaled = pos_actions_scaled + vel_actions_scaled;
     output_dof_pos = pos_actions_scaled + this->params.Get<std::vector<float>>("default_dof_pos");
+    const auto position_lower = this->params.Get<std::vector<float>>("dof_pos_lower");
+    const auto position_upper = this->params.Get<std::vector<float>>("dof_pos_upper");
+    if (!position_lower.empty() && !position_upper.empty())
+    {
+        output_dof_pos = clamp(output_dof_pos, position_lower, position_upper);
+    }
     output_dof_vel = vel_actions_scaled;
     output_dof_tau = this->params.Get<std::vector<float>>("rl_kp") * (all_actions_scaled + this->params.Get<std::vector<float>>("default_dof_pos") - this->obs.dof_pos) - this->params.Get<std::vector<float>>("rl_kd") * this->obs.dof_vel;
     output_dof_tau = clamp(output_dof_tau, -this->params.Get<std::vector<float>>("torque_limits"), this->params.Get<std::vector<float>>("torque_limits"));

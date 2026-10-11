@@ -509,6 +509,24 @@ if(SYSTEM_TYPE STREQUAL "Linux")
     endif()
 endif()
 
+# USB CDC arm driver. In a ROS 2 build it runs as an rclcpp node; CMake-only
+# hardware builds retain the standalone entry point.
+if(SYSTEM_TYPE STREQUAL "Linux")
+    add_executable(rl_real_arm1 src/rl_real_arm1.cpp)
+    target_link_libraries(rl_real_arm1
+        rl_sdk
+        observation_buffer
+        ${YAML_CPP_LIBRARIES}
+        Threads::Threads
+    )
+    if(NOT USE_CMAKE)
+        if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+            ament_target_dependencies(rl_real_arm1 rclcpp)
+            install(TARGETS rl_real_arm1 DESTINATION lib/${PROJECT_NAME})
+        endif()
+    endif()
+endif()
+
 # executable for actuator net
 if(NOT USE_CMAKE)
     if($ENV{ROS_DISTRO} MATCHES "noetic")
@@ -526,6 +544,7 @@ endif()
 
 if(NOT USE_CMAKE)
     if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+        install(FILES launch/arm1_real.launch.py DESTINATION share/${PROJECT_NAME}/launch)
         install(
             DIRECTORY launch worlds ${PROJECT_ROOT_DIR}/policy
             DESTINATION share/${PROJECT_NAME}/${dir}

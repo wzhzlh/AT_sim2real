@@ -157,6 +157,34 @@ Examples:
 
 ## 运行
 
+### AT机械臂 arm1
+
+机械臂 sim2sim 与 sim2real 使用 5 个策略关节，顺序为 `joint1` 至 `joint5`。URDF 保留完整六轴模型；当前下位机固件只控制前五轴，`joint6` 暂不进入策略。
+
+策略配置位于 `policy/arm1/arm1/config.yaml`。将 AT-ARM `source/openarm/openarm/tasks/manager_based/openarm_manipulation/unimanual/reach/reach_env_cfg.py` Reach 任务导出的 TorchScript `policy.pt` 放到同目录。运行时按训练接口构造 22 维观测：`joint_pos_rel(5) + joint_vel_rel(5) + pose_command(7) + last_raw_action(5)`；策略输出不裁剪，目标位置为 `q_target = 0.5 * action`，并受配置中的关节位置限位保护。末端目标在 `ee_pose` 中配置为根坐标系 `[x, y, z, qw, qx, qy, qz]`，当前默认值为 `[0.30, 0, 0.35, 0.7071068, 0, 0.7071068, 0]`。MuJoCo 场景提供绿色可拖动 mocap 目标球 `ee_target`；位置会限制在训练范围 x `[0.25,0.35]`、y `[-0.2,0.2]`、z `[0.3,0.4]`，姿态固定为 `ee_pose`。该策略注册的 Play 配置固定 roll=0、pitch=`pi/2`、yaw=0，并关闭观测噪声，因此仿真只允许调整 xyz。
+
+策略周期设为约 30 Hz（`dt=1 ms`、`decimation=33`），与训练时 60 Hz 仿真、decimation 2 对齐。MuJoCo 的 `arm1` 使用下位机相同的 1 ms 位置 PID→速度 PID 级联控制，PID 参数、积分/输出限幅配置于 `policy/arm1/base.yaml`；MuJoCo 电机力矩限幅配置于 `policy/arm1/arm1/config.yaml` 和 MJCF。该控制器按固件离散算法逐周期累积误差，不乘 `dt`。MuJoCo 机械臂网格已关闭自碰撞，对齐 IsaacLab 的 `enabled_self_collisions=False`。IsaacLab 训练侧使用位置驱动 `stiffness=400, damping=40`、统一 50 Nm effort limit，与真机固件级联 PID 和各电机力矩上限不同；部署前需要以仿真轨迹及真机日志继续校准。训练模型须来自相同的 Reach 观测定义和动作配置；导出的 actor 不包含观测拼接、动作缩放或关节偏置。
+
+在 AT-ARM 训练仓库中运行 `scripts/reinforcement_learning/rsl_rl/play.py --task Isaac-Reach-AT-ARM-5DOF-v0 --checkpoint <训练checkpoint>`，脚本会在对应 run 的 `exported/policy.pt` 生成 TorchScript actor。将其复制为本项目的 `policy/arm1/arm1/policy.pt` 后，sim2sim 与 sim2real 会从同一路径加载；SDK 会在初始化时检查模型输入为 22 维、输出为 5 维。
+
+MuJoCo 仿真：
+
+```bash
+./build.sh --mujoco
+./cmake_build/bin/rl_sim_mujoco arm1 scene
+```
+
+启动后默认处于保持模式。按 `1` 加载并运行策略，按 `0` 平滑回到全零初始保持姿态（约 2 秒）。运行仿真时可用鼠标拖动绿色目标球调整目标位置。实机 ROS2 节点：
+
+```bash
+source /opt/ros/$ROS_DISTRO/setup.bash
+./build.sh rl_sar
+source install/setup.bash
+ros2 launch rl_sar arm1_real.launch.py device:=/dev/ttyACM0
+```
+
+可通过 `device:=/dev/ttyACM1` 指定其它设备节点。下位机收发使用 USB CDC 原始二进制结构体：目标帧 78 字节、状态帧 77 字节；实机反馈不含 IMU，因此策略配置应避免依赖 `ang_vel` 或 `gravity_vec`。驱动以 50 Hz 发送最新目标，对应固件 20 ms 状态回传周期；策略仍以约 30 Hz 更新。实机首次运行应先在无负载、低速和可急停条件下确认关节顺序、正方向、零位、限位和目标位姿，再按 `1` 启用策略。
+
 下文中使用 **\<ROBOT\>/\<CONFIG\>** 代替表示不同的环境，如 `go2/himloco` 、 `go2w/robot_lab`。
 
 运行前请将训练好的pt模型文件拷贝到`rl_sar/src/rl_sar/policy/<ROBOT>/<CONFIG>`中，并配置`<ROBOT>/<CONFIG>/config.yaml`和`<ROBOT>/base.yaml`中的参数。

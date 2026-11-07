@@ -3,15 +3,14 @@
 
 atdog2/robot_lab:
   model_name: "policy.pt"
-  num_observations: 45
-  observations: ["ang_vel", "gravity_vec", "commands", "dof_pos", "dof_vel", "actions"]
-  # 6-frame HIM history: 0 = latest frame, 5 = oldest.
-  # Must match the exported model's history_length (6) and the training-side
-  # wrapper's time_major_current_to_oldest layout.
-  observations_history: [0, 1, 2, 3, 4, 5]  # 0 is the latest observation
+  num_observations: 47
+  observations: ["phase", "ang_vel", "gravity_vec", "commands", "dof_pos", "dof_vel", "actions"]
+  cycle_time: 0.5
+  # The exported six-frame policy expects oldest to current; index 0 is current.
+  observations_history: [5, 4, 3, 2, 1, 0]
   observations_history_priority: "time"  # "time" or "term" priority
-  expected_history_layout: "time_major_current_to_oldest"
-  expected_policy_input_dim: 270
+  expected_history_layout: "time_major_oldest_to_current"
+  expected_policy_input_dim: 282
   clip_obs: 100.0
   clip_actions_lower: [-100.0, -100.0, -100.0,
                        -100.0, -100.0, -100.0,

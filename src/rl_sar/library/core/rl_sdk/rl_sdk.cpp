@@ -4,6 +4,7 @@
  */
 
 #include "rl_sdk.hpp"
+#include <cmath>
 
 void RL::StateController(const RobotState<float>* state, RobotCommand<float>* command)
 {
@@ -68,7 +69,19 @@ std::vector<float> RL::ComputeObservation()
     for (const std::string &observation : this->params.Get<std::vector<std::string>>("observations"))
     {
         // ============= Base Observations =============
-        if (observation == "lin_vel")
+        if (observation == "phase")
+        {
+            const float cycle_time = this->params.Get<float>("cycle_time");
+            if (cycle_time <= 0.0f)
+            {
+                throw std::runtime_error("phase observation requires a positive cycle_time");
+            }
+            const float phase = 2.0f * std::acos(-1.0f) *
+                static_cast<float>(this->episode_length_buf) *
+                this->params.Get<float>("dt") * this->params.Get<int>("decimation") / cycle_time;
+            obs_list.push_back({std::sin(phase), std::cos(phase)});
+        }
+        else if (observation == "lin_vel")
         {
             obs_list.push_back(this->obs.lin_vel * this->params.Get<float>("lin_vel_scale"));
         }
@@ -301,11 +314,12 @@ void RL::ValidateObservationConfig(const std::vector<float>& observation) const
     if (this->params.Has("expected_history_layout"))
     {
         const std::string expected_history_layout = this->params.Get<std::string>("expected_history_layout");
-        if (expected_history_layout != "time_major_current_to_oldest")
+        if (expected_history_layout != "time_major_current_to_oldest" &&
+            expected_history_layout != "time_major_oldest_to_current")
         {
             throw std::runtime_error(
                 "Unsupported expected_history_layout='" + expected_history_layout +
-                "'. Supported: time_major_current_to_oldest.");
+                "'. Supported: time_major_current_to_oldest, time_major_oldest_to_current.");
         }
         if (observations_history.empty())
         {
@@ -315,14 +329,18 @@ void RL::ValidateObservationConfig(const std::vector<float>& observation) const
         if (history_priority != "time")
         {
             throw std::runtime_error(
-                "expected_history_layout=time_major_current_to_oldest requires observations_history_priority='time'.");
+                "expected_history_layout requires observations_history_priority='time'.");
         }
         for (size_t i = 0; i < observations_history.size(); ++i)
         {
-            if (observations_history[i] != static_cast<int>(i))
+            const int expected_index = expected_history_layout == "time_major_current_to_oldest"
+                ? static_cast<int>(i)
+                : static_cast<int>(observations_history.size() - 1 - i);
+            if (observations_history[i] != expected_index)
             {
                 throw std::runtime_error(
-                    "expected_history_layout=time_major_current_to_oldest requires observations_history=[0, 1, ...]. " +
+                    "expected_history_layout=" + expected_history_layout +
+                    " requires sequential history indices in the specified order. " +
                     std::string("Mismatch at position ") + std::to_string(i) +
                     ": got " + std::to_string(observations_history[i]));
             }

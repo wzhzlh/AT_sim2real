@@ -1,0 +1,63 @@
+# =====================================================================
+#  apriltag_localizer 节点参数
+#  节点名固定为 apriltag_localizer；若用 remap 改了命名空间，把下面的
+#  /apriltag_localizer 改成 /** 即可通配。
+# =====================================================================
+/apriltag_localizer:
+  ros__parameters:
+    # ---------------- 坐标系（务必与机器人实际 TF 树一致）----------------
+    map_frame: "map"                            # 场地/地图坐标系
+    base_frame: "base_link"                     # AMCL 定位的机器人本体坐标系
+    lidar_frame: "laser"                        # 雷达坐标系（有些驱动叫 laser_link / rslidar）
+    camera_frame: "camera_color_optical_frame"  # D435 彩色光学系：x 右 / y 下 / z 前
+
+    # ---------------- AprilTag 与相机 ----------------
+    tag_size: 0.118          # tag 黑色方块外边长 [m]，必须实测！与 D435_apriltag/tag.cpp 一致
+    target_tag_id: -1        # -1 = 使用任意已标定 tag；填 0/1/2 则只用指定 ID
+    image_width: 640
+    image_height: 480
+    fps: 30
+    quad_decimate: 1.0
+    quad_sigma: 0.0
+    nthreads: 4
+    refine_edges: true
+    show_image: false        # 有桌面时改 true 可看检测框/坐标轴；无显示环境必须 false
+
+    # ---------------- tag 在场地 map 中的实际位姿（现场标定）----------------
+    # 格式: "id, x, y, z, roll, pitch, yaw"，单位 m / 度，RPY 为内旋 ZYX。
+    # tag 坐标系：原点=码中心，+x 沿图案正立时的 p0->p1，+y 沿 p0->p3，
+    #             +z 为码正面法向（指向能看见码的那一侧）。
+    # 例 1: tag 平放在地面 (2.50, 1.20, 0)，图案 +x 指向 map 的 +X，+z 朝天。
+    # 例 2: 同高度、图案相对 map 旋转 90 度 -> yaw=90。
+    # 例 3 (贴墙): 竖直贴墙时 +z 水平，需要 ±90 度的 roll/pitch，见 teach.md「4.3」。
+    tag_poses:
+      - "0, 2.50, 1.20, 0.00, 0.0, 0.0, 0.0"
+      - "1, 2.50, -1.20, 0.00, 0.0, 0.0, 90.0"
+
+    # ---------------- 初始化发布策略 ----------------
+    trigger_mode: "auto_once"   # auto_once=启动后只发一次 | manual=只由服务触发 | continuous=每个采样周期都发(危险)
+    min_samples: 10             # 累积多少帧有效检测取均值后发布，抑制 PnP 抖动
+    max_spread: 0.08            # 样本平移最大离散度 [m]，超阈值丢弃本轮（机器人应在静止时初始化）
+    require_subscriber: true    # 必须等 AMCL 订阅了 /initialpose 才发，避免一次性消息丢失
+
+    # /initialpose 协方差用的标准差（代码里会平方成方差）
+    # 视觉初值越可信，值越小 -> 粒子云越集中；过大则 AMCL 可能收敛到错误的局部极值。
+    sigma_x: 0.15              # [m]
+    sigma_y: 0.15              # [m]
+    sigma_yaw: 0.10            # [rad] 约 5.7 度
+
+    # ---------------- TF / 调试 ----------------
+    tf_timeout: 0.2            # 查静态外参的超时 [s]
+    max_tilt_deg: 30.0         # 解出的 map->base 允许的 roll/pitch 上限；超了说明 tag RPY/外参旋转填反，不发布初值
+    publish_debug_poses: true  # 发布 ~/tag_pose_camera、~/tag_pose_lidar、~/lidar_pose_map
+
+    # ---------------- 可选：由本节点发布相机外参静态 TF ----------------
+    # 若 robot_state_publisher / 相机驱动已经发布了 base_link -> camera_frame，
+    # 保持 publish_camera_tf: false 即可，不要重复发布同一个 TF。
+    publish_camera_tf: false
+    camera_tf_parent: "base_link"
+    # [x, y, z, roll, pitch, yaw]（m / 度），表示 camera_frame 在 camera_tf_parent 中的位姿。
+    # 下面是「相机水平前视、base_link 为 x前/y左/z上」时的典型值，必须按实测外参替换：
+    #   rpy = (-90, 0, -90) 是把 base_link 轴系转成光学系 x右/y下/z前的固定旋转。
+    #   相机若朝下或朝侧面安装，roll/pitch/yaw 需要重新标定。
+    camera_in_parent: [0.20, 0.0, 0.15, -90.0, 0.0, -90.0]

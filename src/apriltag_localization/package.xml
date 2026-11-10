@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>apriltag_localization</name>
+  <version>0.1.0</version>
+  <description>D435 + AprilTag 视觉重定位：检测 tag 在相机系下的位姿，经相机-雷达 TF 换算到雷达系，
+    结合 tag 在 map 中的标定位置反算雷达/机器人在 map 中的位姿，发布 /initialpose 交给 AMCL 用激光匹配继续修正。</description>
+  <maintainer email="todo@todo.todo">AT_sim2real</maintainer>
+  <license>TODO: License declaration</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>libopencv-dev</depend>
+
+  <!-- 下面两个第三方 SDK 不作为 rosdep 依赖声明（各发行版 rosdep key 不一致），
+       安装方法见本包 teach.md 的「1. 依赖安装」：
+       librealsense2-dev (librealsense2) 与 apriltag (libapriltag-dev / 源码编译) -->
+  <!-- <depend>librealsense2-dev</depend> -->
+  <!-- <depend>apriltag</depend> -->
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <!-- 激光扫描与地图匹配（继续修正位姿）由标准导航栈提供，launch 中可选拉起 -->
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

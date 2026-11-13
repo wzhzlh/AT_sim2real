@@ -19,6 +19,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <memory>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <ratio>
@@ -82,6 +83,13 @@ class Simulate {
 
   // loop to render the UI (must be called from main thread because of MacOS)
   void RenderLoop();
+
+  // Optional sensor render hook, called with the GL context current. Lock mtx to read physics.
+  std::function<void(const mjModel*, mjData*, mjrContext&)> sensor_render;
+  // Return true to consume an application control key before viewer shortcuts.
+  std::function<bool(int)> control_key;
+  // Optional deterministic controller, called with mtx held before each step.
+  std::function<void()> physics_control;
 
   // add state to history buffer
   void AddToHistory();

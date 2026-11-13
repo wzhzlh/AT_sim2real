@@ -1,0 +1,14 @@
+<mujoco model="atdog2 AprilTag approach">
+  <include file="dog2.xml"/>
+  <include file="../../common/mjcf/apriltag_5.xml"/>
+  <!-- High-gain position hold needs an implicit integrator at 1 kHz. -->
+  <option gravity="0 0 -9.81" timestep="0.001" integrator="implicitfast"/>
+  <visual>
+    <global offwidth="640" offheight="480"/>
+    <headlight ambient="0.8 0.8 0.8" diffuse="0.2 0.2 0.2" specular="0 0 0"/>
+  </visual>
+  <worldbody>
+    <light pos="0 0 4" directional="true"/>
+    <geom name="ground" type="plane" size="20 20 0.1" rgba="0.35 0.4 0.45 1"/>
+  </worldbody>
+</mujoco>

@@ -71,15 +71,27 @@ std::vector<float> RL::ComputeObservation()
         // ============= Base Observations =============
         if (observation == "phase")
         {
-            const float cycle_time = this->params.Get<float>("cycle_time");
-            if (cycle_time <= 0.0f)
+            if (this->gait_clock.Enabled())
             {
-                throw std::runtime_error("phase observation requires a positive cycle_time");
+                // Command-driven clock: identical rule (start, hysteresis, stop)
+                // to robot_lab.gait:TrotClock used by the training environment.
+                obs_list.push_back(this->gait_clock.Observation());
             }
-            const float phase = 2.0f * std::acos(-1.0f) *
-                static_cast<float>(this->episode_length_buf) *
-                this->params.Get<float>("dt") * this->params.Get<int>("decimation") / cycle_time;
-            obs_list.push_back({std::sin(phase), std::cos(phase)});
+            else
+            {
+                // Legacy fallback for configs without a "gait_clock" block. It keeps
+                // the phase running during stops, so it only matches tasks that
+                // train the episode-time sine.
+                const float cycle_time = this->params.Get<float>("cycle_time");
+                if (cycle_time <= 0.0f)
+                {
+                    throw std::runtime_error("phase observation requires a positive cycle_time");
+                }
+                const float phase = 2.0f * std::acos(-1.0f) *
+                    static_cast<float>(this->episode_length_buf) *
+                    this->params.Get<float>("dt") * this->params.Get<int>("decimation") / cycle_time;
+                obs_list.push_back({std::sin(phase), std::cos(phase)});
+            }
         }
         else if (observation == "lin_vel")
         {
@@ -388,6 +400,40 @@ void RL::ValidateLoadedModel(const std::string& model_path, size_t expected_inpu
     }
 }
 
+void RL::ConfigureGaitClock()
+{
+    const float control_dt = this->params.Get<float>("dt") * static_cast<float>(this->params.Get<int>("decimation"));
+    const bool clock_enabled = this->gait_clock.ConfigureFromYaml(this->params.config_node["gait_clock"], control_dt);
+
+    const auto observations = this->params.Get<std::vector<std::string>>("observations");  // avoid dangling reference
+    const bool uses_phase = std::find(observations.begin(), observations.end(), "phase") != observations.end();
+    if (clock_enabled)
+    {
+        const GaitClockCfg &cfg = this->gait_clock.Config();
+        std::cout << LOGGER::INFO << "Gait clock enabled: cycle_time=" << cfg.cycle_time
+                  << " duty_factor=" << cfg.duty_factor
+                  << " enter(linear/yaw)=" << cfg.linear_enter << "/" << cfg.angular_enter
+                  << " exit(linear/yaw)=" << cfg.linear_exit << "/" << cfg.angular_exit << std::endl;
+    }
+    else if (uses_phase)
+    {
+        std::cout << LOGGER::WARNING
+                  << "No 'gait_clock' block found; the phase observation uses the episode-time sine. "
+                  << "Policies trained with robot_lab.gait:TrotClock need the exported gait_clock parameters."
+                  << std::endl;
+    }
+}
+
+void RL::UpdateGaitClock()
+{
+    if (!this->gait_clock.Enabled())
+    {
+        return;
+    }
+    const float control_dt = this->params.Get<float>("dt") * static_cast<float>(this->params.Get<int>("decimation"));
+    this->gait_clock.Update(this->obs.commands, control_dt);
+}
+
 void RL::InitJointNum(size_t num_joints)
 {
     this->robot_state.motor_state.resize(num_joints);
@@ -401,6 +447,10 @@ void RL::InitRL(std::string robot_config_path)
     std::lock_guard<std::mutex> lock(this->model_mutex);
 
     this->ReadYaml(robot_config_path, "config.yaml");
+
+    // The gait clock must be configured before the first observation is built,
+    // because the phase observation reads it directly.
+    this->ConfigureGaitClock();
 
     // init joint num first
     this->InitJointNum(this->params.Get<int>("num_of_dofs"));

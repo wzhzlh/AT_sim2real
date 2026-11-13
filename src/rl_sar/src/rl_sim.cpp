@@ -525,6 +525,10 @@ std::vector<float> RL_Sim::Forward()
         actions = this->model->forward({clamped_obs});
     }
 
+    // Advance the gait clock once per control step, after this step's
+    // observation has been consumed, so the next observation carries it.
+    this->UpdateGaitClock();
+
     if (!this->params.Get<std::vector<float>>("clip_actions_upper").empty() && !this->params.Get<std::vector<float>>("clip_actions_lower").empty())
     {
         return clamp(actions, this->params.Get<std::vector<float>>("clip_actions_lower"), this->params.Get<std::vector<float>>("clip_actions_upper"));

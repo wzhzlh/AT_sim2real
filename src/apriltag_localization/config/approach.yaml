@@ -1,0 +1,139 @@
+# =====================================================================
+#  tag_approach 纯视觉测试配置（不装雷达、不用 AMCL / map / TF 树）
+#
+#  本文件就是测试用的「config.yaml」：所有常数位姿 TF 都以 4x4 齐次矩阵
+#  （行主序 16 个数）写在这里，节点启动时会校验正交性与 det=+1。
+#
+#  两个矩阵的语义（写反了会朝错误方向走，务必看清）：
+#    T_B_C        : 相机光学系在「机体系 B」中的位姿， p_B = T_B_C * p_C
+#                   （相机的安装外参）
+#    T_tag_B_goal : 「目标机体系 B_goal」在 tag 坐标系中的位姿，
+#                   p_tag = T_tag_B_goal * p_Bgoal
+#                   （机器人最终要站到 tag 前面的哪个位姿）
+#
+#  最省事、最不容易填错的办法：把机器人手动摆到期望位姿，让相机看到 tag，
+#  调用 ros2 service call /tag_approach/record_goal std_srvs/srv/Trigger
+#  节点会把此刻真实的 T_tag_B_goal 以 4x4 形式打印到日志，抄回来替换即可。
+# =====================================================================
+/tag_approach:
+  ros__parameters:
+    # ---------------- 常数位姿 TF（4x4，行主序）----------------
+    # 实测：相机装在机身前 0.1948 m / 高 0.1465 m，水平前视、正装。
+    # 机体系 x前 / y左 / z上  ->  光学系 x右 / y下 / z前 的轴系旋转：
+    #   列1 =(0,-1,0)（画面右=机体右） 列2 =(0,0,-1)（画面下=机体下）
+    #   列3 =(1,0,0)（光轴=机体前）
+    # 与 teach.md 中 rpy=(-90, 0, -90) 完全等价；det 必须为 +1，改成镜像节点会拒绝启动。
+    T_B_C: [ 0.0,  0.0,  1.0,  0.1948,
+            -1.0,  0.0,  0.0,  0.00,
+             0.0, -1.0,  0.0,  0.1465,
+             0.0,  0.0,  0.0,  1.00]
+
+    # 合法占位示例，必须用 ~/record_goal 示教替换，不能当成实测目标。
+    # 此矩阵定义：x_B=(0,0,-1), y_B=(1,0,0), z_B=(0,-1,0)，
+    # 目标机体原点在 tag 系中为 (0,0,1.0)。轴向需与实际码的解码方向一致。
+    # 对应「tag 竖直悬挂、图案倒贴（+y 朝下）、机器人停在码面前 1.0 m 正对码」。
+    # 若把 tag 转正（图案 +y 朝上），旋转应改为 y_B=(-1,0,0)、z_B=(0,1,0)。
+    # 修改目标站位/朝向的方法见 ../README.md 第 3.3 节。
+    T_tag_B_goal: [ 0.0,  1.0,  0.0,  0.00,
+                    0.0,  0.0, -1.0,  0.00,
+                   -1.0,  0.0,  0.0,  0.30,
+                    0.0,  0.0,  0.0,  1.00]
+
+    # ---------------- 图像源 ----------------
+    # auto      : 有 RealSense 就用它，否则自动回退到普通 UVC 摄像头（默认）
+    # realsense : 强制 librealsense2（D435，内参由 SDK 自动给出）
+    # uvc       : 强制 OpenCV VideoCapture（普通 USB 摄像头，内参必须自己填/标定）
+    image_source: "auto"
+    uvc_device: "/dev/video2"   # 本机的 Realtek USB Camera (0bda:3035)；用 v4l2-ctl --list-devices 查
+                                # 也可填纯数字索引，如 "0"
+    # 普通 UVC 没有内参，必须标定后填下面这些；全 0 时按 hfov_deg 估算（精度无保证，仅能跑通流程）
+    camera_fx: 0.0         # [像素] <=0 表示未标定
+    camera_fy: 0.0
+    camera_cx: 0.0         # <=0 时取图像中心
+    camera_cy: 0.0
+    distortion: [0.0, 0.0, 0.0, 0.0, 0.0]   # k1, k2, p1, p2, k3
+    hfov_deg: 60.0         # 未标定时按该水平视场角估算 fx/fy
+
+    # ---------------- 画面参数（亮度/曝光/白平衡）----------------
+    # 数值范围 = `v4l2-ctl -d /dev/video2 --list-ctrls` 打印的范围（UVC），
+    # -1 表示「不动驱动默认值」。RealSense 走 rs2 option，量纲不同，见 teach.md。
+    #
+    # 本机（Realtek USB Camera）实测：默认是「手动 8ms + gain 1」，画面几乎全黑。
+    # 实测亮度（中位值 /255，过曝像素占比）：
+    #   自动曝光            ->  56   (0.0%)   偏暗
+    #   33ms + gain48       ->  85   (0.0%)   可用
+    #   33ms + gain64       -> 110   (3.5%)   ★ 推荐，仍能跑满 30 fps
+    #   60ms + gain48       -> 128   (0.0%)   更亮，帧率降到约 16 fps
+    #   100ms + gain64      -> 194  (19.1%)   开始过曝
+    auto_exposure: false       # true=自动(Aperture Priority)；false=手动，用下面的 exposure
+    exposure: 330              # [100us] 330 = 33ms；范围 50~10000。环境很暗可加到 600
+    gain: 64                   # 1~128。环境很暗可加到 96，但噪点明显
+    brightness: -1             # -64~64
+    contrast: -1               # 0~100（默认 40）
+    saturation: -1             # 0~100（默认 66）
+    gamma: -1                  # 100~500（默认 350）
+    sharpness: -1              # 0~100（默认 50）
+    backlight_compensation: -1 # 0~2
+    white_balance_auto: true   # 自动白平衡
+    white_balance_temperature: -1   # [K] 2800~6500，仅在自动白平衡关闭时生效
+    # 工频（日光灯横条纹）OpenCV 没有映射，需手工设一次（国内 50Hz）：
+    #   v4l2-ctl -d /dev/video2 --set-ctrl=power_line_frequency=1
+
+    # ---------------- AprilTag / 相机 ----------------
+    tag_id: 5              # 只用这个 ID 定位；本机相机视野里实测是 tag36h11 的 ID 5
+                           # 设 -1 表示接受任意 ID（只取第一个），临时换码时省得改配置
+                           # 预览窗口会在每个 tag 旁边画出 ID，检测不到时看日志里的 id= 提示
+    tag_size: 0.118        # 图案黑色方块外边长 [m]，必须实测
+    image_width: 640       # 两种图像源共用的采集分辨率
+    image_height: 480
+    fps: 30
+    quad_decimate: 1.0
+    quad_sigma: 0.0
+    nthreads: 4
+    refine_edges: true
+    # 相机预览窗口（检测框 + 坐标轴）。用 tag_approach.launch.py 启动时，
+    # 该值会被 launch 参数 show_image 覆盖（launch 默认 true）：
+    #   关闭窗口：ros2 launch ... tag_approach.launch.py show_image:=false
+    # 直接 ros2 run 节点时用这里的值。无 DISPLAY 时节点会自动禁用窗口。
+    show_image: false      # 直接 run 节点时改 true 看画面
+
+    # ---------------- 速度输出 ----------------
+    # robot_move_cmd : 本工作区实机链路，发 robot_msgs/Cmd（vz 是偏航角速度！）
+    # cmd_vel        : 通用 geometry_msgs/Twist（linear.x/y + angular.z）
+    # none           : 干跑，只打印日志不发速度（纯算法测试推荐先用这个）
+    cmd_output: "robot_move_cmd"
+    cmd_topic: "robot_move_cmd"   # robot_move_cmd 模式下的话题名
+    twist_topic: "cmd_vel"        # cmd_vel 模式下的话题名
+    cmd_mode: 2                   # robot_msgs/Cmd.mode: 2=RLFSMStateRLLocomotion(行走)
+    stand_mode: 1                 # 到位/停车时发的 mode: 1=RLFSMStateGetUp(位控站立)
+    # 控制频率与 rl_real_atdog2 的策略推理周期对齐：
+    #   policy/atdog2/base.yaml: dt=0.005, decimation=4
+    #   loop_control = 1/dt = 200 Hz   读 remote_cmd -> control.setVel -> 电机
+    #   loop_rl      = 1/(dt*decimation) = 50 Hz   control.x/y/yaw 进策略观测
+    # 速度指令真正被策略采用的周期是 20 ms，所以这里取 50 Hz（不要再用 20 Hz）。
+    control_rate: 50.0            # 控制频率 [Hz]
+
+    # ---------------- 控制律 ----------------
+    # holonomic   : 全向，vx/vy/wz 各自比例控制（四足推荐）
+    # differential: 先转向对准目标点再前进，不发横移
+    control_mode: "holonomic"
+    kp_x: 0.8
+    kp_y: 0.6
+    kp_yaw: 1.2
+    max_vx: 0.40            # [m/s]
+    max_vy: 0.25            # [m/s]
+    max_wz: 0.50            # [rad/s]
+    allow_lateral: true     # false 时强制 vy=0
+    yaw_align_band: 0.35    # |yaw_err| 超过该值[rad]时只转向、不前进
+    smooth_tau: 0.10        # 一阶低通时间常数 [s]；按 control_rate 自动换算系数，改频率不改变滤波强度
+    min_velocity: 0.02      # 死区 [m/s 或 rad/s]
+
+    # ---------------- 到位 / 安全 ----------------
+    pos_tolerance: 0.05     # 平移到位阈值 [m]
+    yaw_tolerance: 0.05     # 朝向到位阈值 [rad]
+    hold_time: 0.30         # 连续满足到位阈值多久 [s] 才判定到位（按 control_rate 自动换算周期数）
+    lost_timeout: 0.5       # 丢失 tag 超过该时间 [s] 立即发零速
+    auto_start: false       # false=启动后待命，需 ~/start 触发（真机更安全）
+    resume_on_reacquire: true   # 丢 tag 后重新看见是否自动继续
+    max_tilt_deg: 30.0      # 解出的目标相对当前机体倾角上限，超了说明矩阵填反
+    publish_debug_poses: true

@@ -30,6 +30,7 @@ endif()
 
 # MuJoCo simulator option
 set(USE_MUJOCO OFF CACHE BOOL "Build with MuJoCo simulator support")
+option(MUJOCO_ROS2 "Enable MuJoCo ROS2 camera and velocity bridge" OFF)
 
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -319,6 +320,7 @@ include_directories(
     include
     library/core/matplotlibcpp
     library/core/observation_buffer
+    library/core/gait_clock
     library/core/rl_sdk
     library/core/loop
     library/core/fsm
@@ -358,7 +360,10 @@ if(NOT USE_CMAKE)
 endif()
 
 # library for rl sdk
-add_library(rl_sdk library/core/rl_sdk/rl_sdk.cpp)
+add_library(rl_sdk
+    library/core/rl_sdk/rl_sdk.cpp
+    library/core/gait_clock/gait_clock.cpp
+)
 target_link_libraries(rl_sdk PUBLIC
     motion_loader
     inference_runtime
@@ -609,6 +614,17 @@ if(USE_MUJOCO)
 
     # Build executable
     add_executable(rl_sim_mujoco src/rl_sim_mujoco.cpp ${MUJOCO_SIMULATE_SRC} ${JOYSTICK_SRC})
+
+    if(MUJOCO_ROS2)
+        find_package(ament_cmake REQUIRED)
+        find_package(rclcpp REQUIRED)
+        find_package(sensor_msgs REQUIRED)
+        find_package(std_srvs REQUIRED)
+        find_package(std_msgs REQUIRED)
+        find_package(geometry_msgs REQUIRED)
+        target_compile_definitions(rl_sim_mujoco PRIVATE AT_MUJOCO_ROS2)
+        ament_target_dependencies(rl_sim_mujoco rclcpp sensor_msgs geometry_msgs std_msgs std_srvs)
+    endif()
 
     # Suppress deprecation warnings for macOS 15.0 API changes in MuJoCo Simulate
     if(SYSTEM_TYPE STREQUAL "Darwin")

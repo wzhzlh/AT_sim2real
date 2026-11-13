@@ -29,6 +29,9 @@
 #include <mujoco/mujoco.h>
 #include "joystick.hh"
 #include "mujoco_utils.hpp"
+#ifdef AT_MUJOCO_ROS2
+#include "mujoco_ros_camera.hpp"
+#endif
 
 #include "matplotlibcpp.h"
 namespace plt = matplotlibcpp;
@@ -81,6 +84,9 @@ private:
     void Plot();
 
     // mujoco
+#ifdef AT_MUJOCO_ROS2
+    std::unique_ptr<MujocoRosCamera> ros_camera_;
+#endif
     mjData *mj_data;
     mjModel *mj_model;
     std::string scene_name;

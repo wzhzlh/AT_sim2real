@@ -19,6 +19,7 @@
 
 #include <yaml-cpp/yaml.h>
 #include "fsm.hpp"
+#include "gait_clock.hpp"
 #include "observation_buffer.hpp"
 #include "vector_math.hpp"
 #include "inference_runtime.hpp"
@@ -222,6 +223,8 @@ public:
     void InitControl();
     void InitRL(std::string robot_config_path);
     void InitJointNum(size_t num_joints);
+    void ConfigureGaitClock();
+    void UpdateGaitClock();
     size_t GetConfiguredPolicyInputDim(size_t observation_dim) const;
     void ValidateObservationConfig(const std::vector<float>& observation) const;
     void ValidateJointMapping() const;
@@ -250,6 +253,9 @@ public:
     // history buffer
     ObservationBuffer history_obs_buf;
     std::vector<float> history_obs;
+
+    // gait clock (command-driven phase shared by training and deployment)
+    GaitClock gait_clock;
 
     // others
     int motiontime = 0;

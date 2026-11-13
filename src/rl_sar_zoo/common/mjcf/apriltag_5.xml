@@ -1,0 +1,52 @@
+<mujoco>
+  <worldbody>
+    <!-- +x right, +y up, +z toward the robot; black border = 0.24 m. -->
+    <body name="apriltag_5" mocap="true" pos="2 0 0.5" quat="0.5 0.5 -0.5 -0.5">
+      <geom name="tag5_board" type="box" size="0.15 0.15 0.002"
+            rgba="1 1 1 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.105000 0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.075000 0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.045000 0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.015000 0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.015000 0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.045000 0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.075000 0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.105000 0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.105000 0.075000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.045000 0.075000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.075000 0.075000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.105000 0.075000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.105000 0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.015000 0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.015000 0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.045000 0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.105000 0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.105000 0.015000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.015000 0.015000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.075000 0.015000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.105000 0.015000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.105000 -0.015000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.045000 -0.015000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.015000 -0.015000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.105000 -0.015000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.105000 -0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.075000 -0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.045000 -0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.075000 -0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.105000 -0.045000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.105000 -0.075000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.045000 -0.075000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.045000 -0.075000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.075000 -0.075000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.105000 -0.075000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.105000 -0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.075000 -0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.045000 -0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="-0.015000 -0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.015000 -0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.045000 -0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.075000 -0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+      <geom type="box" pos="0.105000 -0.105000 0.0021" size="0.015000 0.015000 0.0001" rgba="0 0 0 1" contype="0" conaffinity="0" group="1"/>
+    </body>
+  </worldbody>
+</mujoco>

@@ -1,15 +1,22 @@
+> 当前 `apriltag_localizer` 已改为 Tag 对齐现实 odom 到理想地图，发布 `map -> odom` 和 `/odom_corrected`。下文的 AMCL、`/initialpose` 与旧参数描述属于历史方案，当前启动和配置请以 [README.md](README.md#43-重定位与校正里程计) 及 `config/localizer.yaml` 为准。
+
 # AprilTag 视觉重定位教学文档
+
+日常使用、位置修改和 TF 配置请先看 [README.md 使用指南](README.md)。本文保留依赖安装与详细推导；角点朝向、单位和接口以当前源码及 README 为准。
 
 > 面向 `AT_sim2real` 工作区（ROS2 Humble）的功能包 `apriltag_localization`。
 > 目标：把 `~/qq_down/D435_apriltag/tag.cpp` 里那个「打印 tag 在相机系下 XYZ」的 C++ demo，
 > 改造成能给激光定位做**全局初值**的 ROS2 节点。
+>
+> **只想先做无雷达测试？** 直接看文末「第 11 节 无雷达纯视觉测试」：
+> 不需要雷达 / AMCL / 地图 / TF 树，用 4x4 矩阵配置常数位姿，让机器人走到 tag 码前面的固定位姿。
 
 ---
 
 ## 0. 这个包解决什么问题
 
 激光定位（AMCL）有个经典问题：机器人开机时不知道自己在地图的哪里，粒子滤波要靠运动 + 观测慢慢收敛；
-场地大、地形对称时容易收敛到错误的局部极值，甚至完全不收敛。dof_pos
+场地大、地形对称时容易收敛到错误的局部极值，甚至完全不收敛。
 
 AprilTag 是一个**绝对位置基准**：tag 贴在场地已知坐标处，相机看到它就能算出「我相对这个基准在哪里」，
 一步得到全局位姿。但它精度有限（厘米~十几厘米、几度），且视野受限、会被遮挡，不能一直用。
@@ -39,12 +46,15 @@ D435 相机 ──AprilTag 检测──> T_C_tag (tag 在相机系的位姿)
 
 | 文件 | 作用 |
 | --- | --- |
-| `include/apriltag_localization/pose_math.hpp` | 纯数学：solvePnP 结果转 `tf2::Transform`、整条位姿链、协方差、样本统计、tag 标定表解析 |
-| `src/apriltag_localizer.cpp` | ROS2 节点：D435 取图、AprilTag 检测、查 TF、发 `/initialpose`、重定位服务 |
-| `config/localizer.yaml` | 节点参数（帧名、tag 尺寸、**tag 场地位姿**、外参、发布策略、协方差） |
+| `include/apriltag_localization/pose_math.hpp` | 纯数学：solvePnP 结果转 `tf2::Transform`、整条位姿链、协方差、样本统计、tag 标定表解析、**4x4 矩阵解析/生成** |
+| `src/apriltag_localizer.cpp` | ROS2 节点（完整链路）：D435 取图、AprilTag 检测、查 TF、发 `/initialpose`、重定位服务 |
+| `src/tag_approach.cpp` | ROS2 节点（**无雷达测试**）：4x4 矩阵配置、**RealSense / UVC 自适应取图**、视觉伺服走到 tag 前固定位姿、急停与示教 |
+| `config/localizer.yaml` | 完整链路节点参数（帧名、tag 尺寸、**tag 场地位姿**、外参、发布策略、协方差） |
+| `config/approach.yaml` | **测试用 config.yaml**：两个 4x4 常数位姿矩阵 + 图像源/内参 + 全部控制/安全参数 |
 | `config/amcl.yaml` | `nav2_amcl` 示例参数（激光 scan 与地图匹配） |
-| `launch/apriltag_localization.launch.py` | 只启动视觉节点（导航栈已由别人启动） |
+| `launch/apriltag_localization.launch.py` | 只启动完整链路视觉节点 |
 | `launch/full_localization.launch.py` | 一键启动 `map_server + amcl + lifecycle_manager + 视觉节点` |
+| `launch/tag_approach.launch.py` | **只启动无雷达测试节点**（不启动任何导航组件） |
 | `package.xml` / `CMakeLists.txt` | ROS2 ament_cmake 包定义 |
 
 ---
@@ -345,18 +355,23 @@ out.T_M_B   = out.T_M_L * T_L_B;               // ⑦
 
 #### tag 坐标系约定
 
-本包**沿用 `D435_apriltag/tag.cpp` 的角点顺序**（`setupCamera()` 里的 `object_points_`）：
+本包的角点顺序（`setupCamera()` 里的 `object_points_`）与 apriltag 库的 `det->p[]` 严格对应：
 
 ```
-p[0] -> (-s,-s,0)   p[1] -> ( s,-s,0)
-p[3] -> (-s, s,0)   p[2] -> ( s, s,0)
+p[0] -> ( s, s,0)   p[1] -> (-s, s,0)
+p[3] -> ( s,-s,0)   p[2] -> (-s,-s,0)
 ```
 
-因此：
+角点编号由 tag 解码方向决定，随码旋转，不固定对应图像的右上/左上等位置。
+当前物点对应关系决定：
 
-- **+x**：从 `p[0]` 指向 `p[1]`
-- **+y**：从 `p[0]` 指向 `p[3]`
-- **+z** = +x × +y（右手系），指向**码正面外侧**，也就是「能看见码的那一侧」
+- **+x**：从 `p[1]` 指向 `p[0]`
+- **+y**：从 `p[3]` 指向 `p[0]`
+- **+z** = +x × +y（右手系），指向码正面外侧
+
+预览红/绿/蓝分别表示 tag 的 +X/+Y/+Z 投影。码旋转后红轴可能向左、绿轴可能向下，
+这不代表相机光学系改变。改动代码的物点轴约定后，必须重新核对 `tag_poses` 和示教目标，
+不能不加区分地给 map yaw 加减 180°。
 
 `tag_poses` 的格式：
 
@@ -388,22 +403,24 @@ roll/pitch 理论上接近 0。若解出很大的倾角（默认 > `max_tilt_deg
 
 #### 最省事的标定法：反算法（强烈推荐）
 
-不必在理论上纠结「图案哪个角是 p[0]」，直接实测：
+把机器人摆到已知真实位姿，并测得 tag 在相机系中的完整位姿：
 
-1. 把 tag 贴在场地固定位置，量出大致 `(x, y, z)`，`tag_poses` 里 RPY 先全填 0。
-2. 把机器人**手动摆到一个已知位姿** `(x0, y0, yaw0)`（用卷尺量机身原点，量朝向），让它能看见 tag。
-3. 启动节点，看日志的 `map 中 base=(...)`，或
-   `ros2 topic echo /apriltag_localizer/lidar_pose_map`。
-4. 设解算值为 `(x', y', yaw')`，误差 `(x0−x', y0−y', yaw0−yaw')` 就是 `tag_poses` 的偏差：
-   - 平移误差 → 直接加到 `tag_poses` 的 x/y（若随朝向变化，说明外参 `camera_in_parent` 的平移有错）
-   - 固定 yaw 偏差 → 加到 `tag_poses` 的 yaw
-   - 换几个不同朝向重复一次，若误差随朝向系统性变化 → 检查相机外参的旋转
-5. 改完重跑，直到静止时解算值稳定且与真值差在几厘米/几度内。
+```text
+T_M_tag = T_M_B_known * T_B_C * T_C_tag_measured
+```
+
+`T_M_B_known` 必须以机体原点为准，包含位置和旋转；`T_B_C` 来自标定外参或 TF，
+`T_C_tag_measured` 可从 `/apriltag_localizer/tag_pose_camera` 获取。将结果转为
+`x,y,z,roll,pitch,yaw`（米/度）填回 `tag_poses`，在不同机器人朝向下重复验证。
+相机位姿话题的姿态是四元数，不能直接把其中的 x/y/z 当成 RPY。
+
+只给 tag 的 XY 累加最终位置误差，不能普遍修复旋转标定错误。
+`lidar_pose_map` 是雷达位姿而非机体位姿；两者原点不重合时不能拿雷达坐标直接比较机体真值。
 
 #### 多个 tag
 
 `tag_poses` 可以配置多个（每个 ID 一行）。节点一帧只用「第一个有效 tag」产生一个样本，
-避免不同 tag 的样本被平均到一起。`target_tag_id` 填某个 ID 可强制只用那一个。
+限制每帧的样本数；跨帧仍可能切换 ID，各 tag 的 map 标定必须一致。`target_tag_id` 填某个 ID 可强制只用那一个。
 未标定的 tag 检测到时会被忽略并打印 WARNING。
 
 ---
@@ -720,6 +737,437 @@ AMCL 激活并发布 `map -> odom` 后，这条 TF 就是可用的，自动导�
 | 8 | `apriltag_localizer.cpp::publishInitialPose()` | `/initialpose` 消息、协方差、只发一次的保护 |
 | 9 | `pose_math.hpp::summarize()` | 多帧平均（yaw 用 sin/cos 在圆上平均）与离散度剔除 |
 | 10 | `launch/full_localization.launch.py` | 完整启动顺序与 3 秒延迟的原因 |
+| 11 | `pose_math.hpp::fromMatrix4x4()` | 4x4 矩阵解析 + 正交性/det 校验（测试节点的配置入口） |
+| 12 | `tag_approach.cpp::captureLoop()` | 无 TF 树的三段位姿链、目标示教、倾角防呆 |
+| 13 | `tag_approach.cpp::controlTick()` | P 控制、限速平滑、到位判定、丢 tag 急停 |
+
+---
+
+## 11. 无雷达纯视觉测试：走到 tag 码前面的固定位姿
+
+> 本节**完全独立**于前面 1~10 节：不需要雷达、不需要 `/scan`、不需要 AMCL / `map_server`，
+> 不需要 `map` 帧，也不需要 TF 树。所有常数位姿由人手以 **4x4 矩阵**写在
+> `config/approach.yaml`（就是测试用的 `config.yaml`）里，节点 `tag_approach` 只做视觉闭环。
+
+### 11.1 链路
+
+```
+相机彩色图 -> AprilTag + solvePnP -> T_C_tag                      (tag 在相机系)
+                     │
+                     ├─ × T_B_C        (4x4 常数，相机安装外参)
+                     ▼
+                  T_B_tag                                       (tag 在当前机体系)
+                     │
+                     ├─ × T_tag_B_goal (4x4 常数，目标站位)
+                     ▼
+                  T_Bnow_Bgoal                                  (目标机体在当前机体系)
+                     │
+                     └─ (dx, dy, yaw) -> P 控制 -> robot_move_cmd / cmd_vel -> 到位停车
+```
+
+速度命令以固定频率（`control_rate`，默认 **50 Hz**，见 11.5「控制频率对齐」）由**独立定时器**发布，
+相机采集在**独立线程**里跑；两者通过带 mutex 的最新误差通信。
+这样即使相机掉帧或 tag 被遮挡，定时器也能可靠地超时停车。
+
+**图像源（`image_source`）**：取图与检测/解算是解耦的，节点里只有 `grabFrame()` 接触相机 SDK，
+上层拿到的永远是一张 BGR `cv::Mat`。
+
+| 取值 | 行为 | 内参来源 |
+| --- | --- | --- |
+| `auto`（默认） | 先探 D435，有就用它，没有就退回普通 USB 摄像头 | 按实际选中的源 |
+| `realsense` | 强制 librealsense2 读取 D435 彩色流 | SDK 的 `get_intrinsics()`，**无需标定** |
+| `uvc` | 强制 OpenCV `VideoCapture`（V4L2）读取 `uvc_device` | `camera_fx/fy/cx/cy` + `distortion`，需自己标定 |
+
+`uvc_device` 可以写设备路径（`/dev/video2`）也可以写纯数字索引（`0`），用
+`v4l2-ctl --list-devices` 查。普通 UVC 摄像头**没有内参**，此时若 `camera_fx/fy` 为 0，
+节点会按 `hfov_deg`（默认 60°）估算 \(f_x = (w/2)/\tan(\text{hfov}/2)\)、\(f_y=f_x\)、主点取图像中心，
+启动日志会给出显式告警：
+
+```
+UVC 未标定内参：按 hfov_deg=60.0 估算 fx=fy=554.3，PnP 距离会有系统性偏差，
+请棋盘格标定后填 camera_fx/fy/cx/cy
+```
+
+> 估算内参能跑通流程，但 **PnP 解出的 `dx` 会有系统性缩放误差**（`dx` 直接来自 `tvec`），
+> 表现为「离 tag 越远、误差越大」。要求精度时先做棋盘格标定：
+> `ros2 run camera_calibration cameracalibrator --size 8x6 --square 0.025 image:=<你的图像话题>`，
+> 把得到的 \(f_x, f_y, c_x, c_y\) 与 \(k_1,k_2,p_1,p_2,k_3\) 填进 `config/approach.yaml`。
+> 驱动若没接受请求的分辨率，节点会以**实际分辨率**为准并打印 WARN（内参必须和实际图像尺寸匹配）。
+
+**画面太暗怎么办（曝光 / 增益）**
+
+UVC 摄像头没有「自动亮度」，曝光和增益是驱动里两个独立控制项，任何一次「手动 8 ms + 最低增益」
+都能让画面接近全黑——本机就踩过这个坑：`auto_exposure=1 (Manual)`、`exposure_time_absolute=80`、`gain=1`。
+节点启动时会按 `config/approach.yaml` 把这些值写回驱动，并逐项打印生效值：
+
+```
+UVC auto_exposure(manual) = 1
+UVC exposure[100us] = 330     # 330 * 100us = 33 ms
+UVC gain = 64
+```
+
+本机实测亮度（中位值 /255，括号为过曝像素占比）：
+
+| 设置 | 亮度 | 说明 |
+| --- | --- | --- |
+| 自动曝光 `auto_exposure: true` | 56 | 偏暗，暗光下仍不够 |
+| 33 ms + gain 48 | 85 | 可用 |
+| **33 ms + gain 64** | **110** | **★ 默认值**，仍在 30 fps 上限内 |
+| 60 ms + gain 48 | 128 | 更亮，但帧率降到约 16 fps（曝光不能超过 1/fps） |
+| 100 ms + gain 64 | 194 | 开始过曝，tag 黑白边界会糊 |
+
+```yaml
+auto_exposure: false    # 手动曝光
+exposure: 330           # [100us] 330 = 33ms；范围 50~10000
+gain: 64                # 1~128
+```
+
+调参顺序建议：
+
+1. **先固定 `gain`，只动 `exposure`**：曝光决定亮度且不引入噪点，但 `exposure > 1/fps`（33 ms @30 fps）
+   会掉帧，掉帧严重就先把 `fps` 降到 15。
+2. 曝光到 33 ms 还不亮，再加 `gain`（1→48→64→96），代价是噪点变大、tag 边缘变毛。
+3. 强光下过曝就把 `exposure` 往下调（200、150），或直接 `auto_exposure: true` 交回固件。
+4. 现场快速试值不用改代码，直接在终端调，节点启动时会覆盖回去，所以**要固化的值写进 YAML**：
+
+```bash
+v4l2-ctl -d /dev/video2 --set-ctrl=auto_exposure=1
+v4l2-ctl -d /dev/video2 --set-ctrl=exposure_time_absolute=330   # 33 ms
+v4l2-ctl -d /dev/video2 --set-ctrl=gain=64
+v4l2-ctl -d /dev/video2 --get-ctrl=auto_exposure,exposure_time_absolute,gain
+```
+
+> 日光灯下画面有横向条纹时设工频（OpenCV 没有映射这个控制项，只能手工设一次）：
+> `v4l2-ctl -d /dev/video2 --set-ctrl=power_line_frequency=1`（国内 50 Hz）。
+> 调好的有效范围可用 `v4l2-ctl -d /dev/video2 --list-ctrls` 查，不同摄像头差别很大。
+
+RealSense 走 `rs2_option`，同一套参数名的量纲不同：`exposure` 仍按 100 µs 书写（内部 ×100 转 µs），
+`gain` / `brightness` 是 RealSense 自己的刻度（D435 彩色 gain 16~248），**不要照抄 UVC 的数值**。
+
+### 11.2 两个 4x4 矩阵的语义（最容易写反的地方）
+
+沿用全文记号：`T_A_B` 表示把 B 系坐标变换到 A 系，即 `p_A = T_A_B * p_B`。
+
+| 参数 | 定义 | 含义 | 谁提供 |
+| --- | --- | --- | --- |
+| `T_B_C` | \(p_B = T_{B\_C}\,p_C\) | **相机光学系在机体系中的位姿**（安装外参）：相机装在哪、朝哪 | 按安装实测填 |
+| `T_tag_B_goal` | \(p_{tag} = T_{tag\_B\_goal}\,p_{B\_goal}\) | **目标机体系在 tag 坐标系中的位姿**：机器人最后要站在 tag 的哪里、朝哪 | 手填或 `~/record_goal` 示教 |
+
+矩阵按**行主序 16 个数**写，YAML 里可以直接排成 4 行，看起来就是矩阵：
+
+```yaml
+T_B_C: [ 0.0,  0.0,  1.0,  0.20,     # [ r00 r01 r02 tx ]
+        -1.0,  0.0,  0.0,  0.00,     # [ r10 r11 r12 ty ]
+         0.0, -1.0,  0.0,  0.15,     # [ r20 r21 r22 tz ]
+         0.0,  0.0,  0.0,  1.00]     # [  0   0   0   1 ]
+```
+
+上面这个 `T_B_C` 就是「相机水平前视、装在机身前 0.20 m / 高 0.15 m」：
+机体系（x 前 / y 左 / z 上）→ 光学系（x 右 / y 下 / z 前）的轴系旋转，
+与第 4.2 节的 `rpy = (-90°, 0, -90°)` 完全一致。
+
+节点启动时会**校验矩阵**（`pose_math::fromMatrix4x4`），填错会立刻报出来而不是让机器人乱跑：
+
+- 必须恰好 16 个数、最后一行必须是 `(0, 0, 0, 1)`
+- 左上 3×3 必须正交（\(R^TR = I\)），否则报「不是正交旋转矩阵」
+- 行列式必须为 `+1`，否则报「坐标系含镜像，请检查轴方向」
+
+> 注意：矩阵**转置写反**仍是合法旋转，校验抓不出来，只会让机器人朝反方向走。
+> 所以推荐用 11.4 的示教法生成 `T_tag_B_goal`，不要手推。
+
+### 11.3 位姿链推导
+
+\[
+\begin{aligned}
+T_{C\_tag} &= \text{solvePnP}(rvec, tvec) && \text{① tag 在相机系}\\
+T_{B\_tag} &= T_{B\_C}\,T_{C\_tag} && \text{② tag 在当前机体系}\\
+T_{B_{now}\_B_{goal}} &= T_{B\_tag}\,T_{tag\_B\_goal} && \text{③ 目标机体在当前机体系}
+\end{aligned}
+\]
+
+③ 之所以成立，是因为 `tag` 在中间自然抵消：
+\(T_{B_{now}\_tag}\,T_{tag\_B_{goal}}\)。
+
+**到位自检**：若机器人已经在目标位姿，则当前机体就是目标机体 \(B = B_{goal}\)，
+于是 \(T_{B\_tag} = T_{B_{goal}\_tag} = T_{tag\_B\_goal}^{-1}\)，代入 ③ 得
+\(T_{B_{now}\_B_{goal}} = I\)，误差全为 0 —— 这正是控制律的收敛点。
+
+从 ③ 取平移 `dx, dy` 和 `yaw`（`getRPY`），就是「目标点在我（当前机体）的前/左多远、
+我要转多少度才能和目标朝向一致」，可直接做 P 控制。
+
+用真实 C++ 代码跑过的数值验证（`toMatrix4x4` 往返误差 0）：
+
+| 情形 | 解出 dx | dy | yaw 误差 | 控制响应 |
+| --- | --- | --- | --- | --- |
+| 已在目标位姿 | 0 | 0 | 0 | 零速站立 |
+| 从目标位姿沿自身 −x 后退 0.5 m | **+0.5** | 0 | 0 | `vx > 0` 前进（方向正确） |
+| 相对目标朝向偏 +20° | 0 | 0 | **−20°** | `wz < 0` 反向转回（符号正确） |
+
+### 11.4 最省事的标定：一键示教 `~/record_goal`
+
+手推 `T_tag_B_goal` 要搞清楚 AprilTag 码坐标系的轴方向，很容易错。
+**直接示教**：
+
+```bash
+# 1) 启动节点（参数里 T_tag_B_goal 先随便放一个合法占位矩阵）
+ros2 launch apriltag_localization tag_approach.launch.py
+
+# 2) 把机器人手动摆到「tag 前面那个固定位姿」，让相机稳定看见 tag
+# 3) 示教
+ros2 service call /tag_approach/record_goal std_srvs/srv/Trigger
+```
+
+节点会在日志里打印：
+
+```
+已示教 T_tag_B_goal，请把下面的 4x4 矩阵抄回 config/approach.yaml:
+  [   0.000000,   1.000000,   0.000000,   0.000000]
+  ...
+```
+
+把这 16 个数抄进 `config/approach.yaml` 的 `T_tag_B_goal`，重启即可。
+原理：示教那一刻相机看到的是 \(T_{B_{goal}\_tag}\)，而节点要的正是它的逆
+\(T_{tag\_B\_goal} = T_{B\_tag}^{-1}\)。
+
+`T_B_C` 仍需按安装外参填（或从 `rpy + 平移` 生成），但它不随目标点变化，标一次就够。
+
+### 11.5 控制律与安全
+
+| 机制 | 说明 |
+| --- | --- |
+| `holonomic`（默认） | `vx = kp_x·dx`，`vy = kp_y·dy`，`wz = kp_yaw·yaw`；四足全向 |
+| `differential` | 先转向对准 `atan2(dy, dx)` 再前进，不发横移 |
+| `yaw_align_band` | 朝向偏差超过该角度时只转向、不前进，避免「斜着冲过去」 |
+| 限速 / 死区 / 一阶平滑 | `max_vx/vy/wz`、`min_velocity`、`smooth_tau`（时间常数），防止起步猛、末端抖 |
+| 到位判定 | `dist ≤ pos_tolerance` 且 `|yaw| ≤ yaw_tolerance` 连续保持 `hold_time` 秒 |
+| 丢 tag 急停 | 超过 `lost_timeout` 没有新检测 → 立即发零速；`resume_on_reacquire` 控制是否自动恢复 |
+| 未激活不抢占 | `auto_start: false` 时节点**完全不发速度**，控制权留给遥控器；`~/start` 才开始 |
+| 到位保持零速 | 底层驱动会保持最后收到的速度命令，因此到位/停车时**持续**发零速站立帧 |
+| 倾角防呆 | 解出的目标相对当前机体 roll/pitch > `max_tilt_deg` → 判定矩阵填反，本帧忽略 |
+
+#### 控制频率对齐（`rl_real_atdog2` 实例）
+
+测试时两个进程：先 `ros2 run rl_sar rl_real_atdog2`，再启动本节点发 `robot_move_cmd`。
+`rl_real_atdog2.cpp` 里有三条独立循环，速度命令要走过它们才真正生效：
+
+| 循环 | 周期 | 频率 | 作用 |
+| --- | --- | --- | --- |
+| `loop_command` | 0.05 s（写死） | 20 Hz | `KeyboardInterface()` 读键盘，**不碰 `remote_cmd`** |
+| `loop_control` | `dt` = 0.005 s | 200 Hz | `RobotControl()`：读 `remote_cmd` → `control.setMode/setVel` → 下发电机命令 |
+| `loop_rl` | `dt × decimation` = 0.02 s | **50 Hz** | `RunModel()`：`obs.commands = {control.x, control.y, control.yaw}`，速度真正进策略 |
+
+`dt` / `decimation` 来自 `policy/atdog2/base.yaml`（`dt: 0.005`、`decimation: 4`）。
+`robot_move_cmd` 的订阅回调只做 `remote_cmd = msg`（QoS depth 10），
+**没有时间戳、没有看门狗**，命令是锁存的：发得再快也只是被 200 Hz 循环重复读，
+但策略每 20 ms 才采用一次。
+
+所以 `config/approach.yaml` 取 `control_rate: 50.0`（周期 20 ms），与 `loop_rl` 一一对应。
+原来的 20 Hz 与 50 Hz 不成整数倍，会出现「2 个 / 3 个策略周期交替更新」的相位抖动，故不再使用。
+
+> 视觉误差受 D435 彩色流限制最多 30 Hz 更新；控制环 50 Hz 时对误差做零阶保持，
+> 低通按时间常数换算，因此提高频率不会让控制变激进。
+
+**凡是按「周期数」定义的参数都已改成时间制**，改频率不会悄悄改变控制行为：
+
+| 参数 | 含义 | 代码里的换算 |
+| --- | --- | --- |
+| `smooth_tau: 0.10` | 一阶低通时间常数 [s] | \( \alpha = 1 - e^{-T/\tau}\)，\(T = 1/control\_rate\) |
+| `hold_time: 0.30` | 到位判定需连续满足的时间 [s] | `hold_ticks = ceil(hold_time × control_rate)` |
+| `lost_timeout: 0.5` | 丢 tag 超时 [s] | 本来就是秒，无需换算 |
+
+> **安全提醒**：`rl_real_atdog2` 对 `robot_move_cmd` 没有超时保护。
+> 若本节点被 `kill -9` 或异常崩溃，机器人会保持最后一条速度命令一直走。
+> 正常 Ctrl-C 退出时本节点析构会补发一条零速站立帧；真机测试请随时准备
+> `~/stop` 或遥控器急停，建议后续在 `rl_sar` 侧给 `remote_cmd` 加时间戳超时保护。
+
+三个服务：
+
+```bash
+ros2 service call /tag_approach/start       std_srvs/srv/Trigger  # 开始趋近
+ros2 service call /tag_approach/stop        std_srvs/srv/Trigger  # 急停并交还控制权
+ros2 service call /tag_approach/record_goal std_srvs/srv/Trigger  # 示教目标位姿
+```
+
+调试话题（frame 固定写 `base_link`，纯显示用，不参与计算）：
+
+```bash
+ros2 topic echo /tag_approach/tag_pose_body    # ② tag 在当前机体系的位姿
+ros2 topic echo /tag_approach/goal_pose_body   # ③ 目标机体在当前机体系的位姿（误差来源）
+```
+
+### 11.6 速度输出接口（很容易踩坑）
+
+`cmd_output` 三选一：
+
+| 值 | 消息 / 话题 | 适用 |
+| --- | --- | --- |
+| `robot_move_cmd`（默认） | `robot_msgs/Cmd` → `robot_move_cmd` | 本工作区实机（`rl_sar` 的 `rl_real_atdog2/3`） |
+| `cmd_vel` | `geometry_msgs/Twist` → `/cmd_vel` | 通用底盘 / Gazebo 仿真 |
+| `none` | 不发布，只打日志 | **纯算法干跑**，第一次测试推荐 |
+
+**关键约定**：本工作区 `robot_msgs/Cmd` 的 `vz` 是**偏航角速度**，不是 z 向线速度
+（`obstacle_game::Pilot` 里 `cmd.vz = omega`，`rl_real_atdog2.cpp` 里 `setVel(vx, vy, vz)`）。
+所以节点把 `wz` 填进 `cmd.vz`，Twist 模式则填 `angular.z`。
+
+另一个坑是 `mode`：`rl_real_atdog2.cpp::RobotControl()` 只在
+`remote_cmd.mode != 0` 时才由上层接管，`fsm_atdog2.hpp::ResolveRemoteModeState()`
+再把 mode 映射成 FSM 状态。节点默认：
+
+- `cmd_mode: 2` → `RLFSMStateRLLocomotion`（RL 行走，运动中）
+- `stand_mode: 1` → `RLFSMStateGetUp`（位控站立，到位/停车时）
+- `mode = 0` → `setMode(0)` 且**不调用 `setVel`**，`control.x/y/yaw` 保持上次值，本节点不会发 0
+
+> 到位时切 `mode=1` 会触发一次 FSM 状态切换（与 `obstacle_game::Pilot::stop()` 的约定一致）。
+> 若不希望有姿态过渡，把 `stand_mode` 也设成 `2`，靠零速度让 RL 策略原地站稳。
+
+### 11.7 运行步骤（建议按这个顺序）
+
+```bash
+cd ~/RL/AT_sim2real
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+# ① 编译（正常应零 warning / 零 error）
+colcon build --symlink-install --packages-select apriltag_localization
+source install/setup.bash
+ros2 pkg executables apriltag_localization     # 应同时看到 apriltag_localizer 和 tag_approach
+```
+
+**第一次务必干跑**：把 `config/approach.yaml` 的 `cmd_output` 改成 `none`，
+确认日志里的位姿误差方向和数量级合理，机器人绝不会动。
+
+启动时会打印实际选中的图像源与内参，先核对这两行再往下走：
+
+```
+image_source=auto -> uvc
+图像源=UVC /dev/video2 | 640x480@30 | fx=554.3 fy=554.3 cx=320.0 cy=240.0 | tag_size=0.1180 m
+相机预览窗口：开（叠加 tag 检测框与坐标轴，ESC 关闭）
+```
+
+**相机预览窗口**由 `tag_approach` 自己用 OpenCV 创建（窗口标题「Tag Approach 相机预览」），
+画面里叠加 tag 检测框、ID 与 PnP 坐标轴——找 tag、判断 tag 装没装正、看 dx 方向对不对都靠它。
+窗口由 launch 参数控制，默认开：
+
+```bash
+ros2 launch apriltag_localization tag_approach.launch.py                 # 开窗口
+ros2 launch apriltag_localization tag_approach.launch.py show_image:=false  # 不开窗口
+```
+
+- 窗口可拖动缩放，画面按窗口大小自适应；按 **ESC** 关窗口，节点继续跑（不影响控制）。
+- 需要图形界面：本机桌面直接可用，远程 `ssh` 用 `ssh -X` 转发。
+- 无 `DISPLAY` 时节点打印 WARN 并**自动禁用窗口**（OpenCV 的 `imshow` 在无图形环境下会直接 abort）。
+- 这个窗口不依赖 `realsense2_camera` / `usb_cam`，所以也不需要 `rqt_image_view`；
+  如果确实想在 ROS 里看图，先把图像发布成话题再说（当前节点不发图像话题）。
+
+设备不确定时先查：
+
+```bash
+v4l2-ctl --list-devices        # 普通 USB 摄像头 -> 填到 uvc_device
+rs-enumerate-devices | head    # D435（装了 librealsense2-utils 才有）
+```
+
+**两个进程、两个终端**（每个终端都要 `source install/setup.bash`）：
+
+```bash
+# 终端 A：底层控制器（atdog2 实机），先启动
+ros2 run rl_sar rl_real_atdog2
+
+# 终端 B：视觉趋近节点，后启动
+ros2 launch apriltag_localization tag_approach.launch.py
+
+# 终端 C：核对移动话题
+ros2 interface show robot_msgs/msg/Cmd     # int32 mode / float32 vx,vy,vz,wheel_vel
+ros2 topic info /robot_move_cmd            # 应能看到 rl_sar 的订阅 + tag_approach 的发布
+```
+
+> **不要同时运行 `obstacle_game` / `remote_node`**：`obstacle_game::Robot` 也会往
+> `robot_move_cmd` 发 `Cmd`，会覆盖本节点的速度和 `mode`，导致机器人乱动。
+> 测试期间只保留 `rl_real_atdog2` 与 `tag_approach` 两个发布/订阅方。
+
+首次标定与启动：
+
+```bash
+# ① 摆好机器人 -> 示教 -> 把打印的 4x4 矩阵抄回 yaml -> 重启节点
+ros2 service call /tag_approach/record_goal std_srvs/srv/Trigger
+
+# ② 把机器人挪开一点，开始趋近
+ros2 service call /tag_approach/start std_srvs/srv/Trigger
+
+# ③ 观察命令与频率（注意 auto_start=false 时未激活不发消息，需先 ~/start）
+ros2 topic hz /robot_move_cmd               # 应约 50 Hz
+ros2 topic echo /robot_move_cmd
+ros2 topic echo /tag_approach/goal_pose_body
+
+# ④ 任何不对劲立即急停
+ros2 service call /tag_approach/stop std_srvs/srv/Trigger
+```
+
+`ros2 topic hz` 显示约 50 Hz 就说明本节点的发布频率已与
+`rl_real_atdog2` 的 `loop_rl`（`dt × decimation = 20 ms`）对齐。
+
+日志会持续打印：
+
+```
+T_C_tag | x=-0.0213 y=+0.0084 z=+1.0021 m | roll=+178.94 pitch=-0.42 yaw=+1.13 deg
+tag 0 | 机体系误差 dx=+0.512 dy=-0.031 dz=+0.002 yaw=-3.2 deg
+cmd vx=+0.320 vy=-0.015 wz=-0.067 | err d=0.513 yaw=-3.2 deg
+已到达目标位姿 (dist=0.038 m, yaw=1.1 deg)，保持零速站立
+```
+
+`T_C_tag` 是 **tag 中心在相机光学系下**的位姿（6 个量，1 Hz 节流）：
+
+- `x/y/z` 单位 m，光学系 x 右 / y 下 / z 前。`z` 是轴向深度，
+  中心到相机原点的直线距离是 `sqrt(x*x+y*y+z*z)`；倾斜码平面的垂直距离也不能直接用 z 代替。
+- `roll/pitch/yaw` 单位 deg，满足 `R = Rz(yaw)·Ry(pitch)·Rx(roll)`。
+  tag +X 朝图像右、+Y 朝图像上且正对相机时，约为 `(±180°,0°,0°)`；
+  其它码朝向不能直接套这个基准。一般情况下 Euler 角不是绕 tag 自身三轴的独立转角。
+- 这一行是 PnP 原始结果，没有经过 `T_B_C`；后面「机体系误差」才是控制用量。
+- UVC 未标定时，包括 z 在内的位姿都可能有系统误差。请标定内参、核对实际分辨率，
+  并量取图案黑框外边长作为 `tag_size`。
+- 当前趋近节点没有 `tag_pose_camera` 话题，六维相机位姿看日志；全局重定位节点才提供
+  `/apriltag_localizer/tag_pose_camera`（PoseStamped，姿态为四元数）。
+
+### 11.8 排错
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `image_source 指定 realsense 但未检测到 D435` | 没接 D435 / 被别的进程占用 / udev 规则缺失 | `rs-enumerate-devices` 检查，关掉其它相机进程；或把 `image_source` 设为 `auto`/`uvc` |
+| `探测 RealSense 失败 (...)，按 UVC 处理` | librealsense 拿不到设备访问权限 | `sudo cp config/99-realsense-libusb.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules`，重新插拔；只用 UVC 可忽略 |
+| `无法打开 UVC 摄像头 '/dev/video2'` | 设备号变了 / 被 `usb_cam` 等节点占用 / 无读权限 | `v4l2-ctl --list-devices` 查实际路径，改 `uvc_device`；`sudo usermod -aG video $USER` 后重新登录 |
+| `UVC 读帧失败` 反复打印 | 分辨率/格式不被支持、USB 带宽不足、线松 | 降到 `640x480@30`，换 USB 口，或 `v4l2-ctl -d /dev/video2 --list-formats-ext` 核对支持的模式 |
+| **启动后不打印 `T_C_tag` / 任何位姿** | 最常见是 `tag_id` 与视野里的码不符：节点只处理目标 ID，其它码静默跳过（本机实测视野里是 **ID 5**，当前 YAML 为 5，C++ 参数缺省值为 0） | 看预览窗口里画在每个码旁的 `ID: x`，或日志 `本帧检测到 N 个 tag (id=...)`，把 `tag_id` 改成那个 ID；临时换码可设 `tag_id: -1` 接受任意 ID |
+| 日志有 `本帧未检测到任何 AprilTag` | 视野里没有完整码 / 画面太暗或过曝 / tag 家族不匹配（本包只检测 tag36h11） | 调整相机朝向、核对 11.1 的曝光参数、实测 `tag_size`（黑框外边长） |
+| 检测到 tag 但没有 `T_C_tag` 行 | `solvePnP` 失败或 `z` 不在 (0,10] m；倾角异常会阻止后续机体系误差，但不会阻止前面的 `T_C_tag` 日志 | 看紧随其后的 WARN：前两个查内参/`tag_size`；倾角异常多半是改过角点顺序后 **`T_tag_B_goal` 没重新示教**，重新 `~/record_goal` |
+| 预览画面很暗 / 几乎全黑 | 驱动被设成「手动 8 ms + 最低增益」（`auto_exposure=1`、`exposure_time_absolute=80`、`gain=1`） | 用 `config/approach.yaml` 的 `auto_exposure/exposure/gain` 覆盖，见 11.1「画面太暗怎么办」 |
+| 画面亮但 tag 检测不到 | 过曝导致黑白边界糊掉，或工频条纹 | 降低 `exposure`（330→200）；`v4l2-ctl --set-ctrl=power_line_frequency=1` |
+| `UVC 设置 xxx 失败` | 该摄像头没有这个控制项 | 无害，`v4l2-ctl --list-ctrls` 看支持哪些，把对应参数设回 `-1` |
+| `show_image=true 但没有图形界面 ...` | 在无桌面的 ssh / systemd 里启动 | 用本机桌面启动、`ssh -X` 转发，或 `show_image:=false` 关窗口 |
+| 预览窗口一打开就崩 / 一闪而过 | OpenCV 的 Qt/GTK 后端缺库，或 `DISPLAY` 指向失效的 X server | `sudo apt install libgtk2.0-dev pkg-config` 重装 OpenCV 后端；`echo $DISPLAY` 确认有效（如 `:1`） |
+| 没有预览窗口但日志有 `tag 0 \|` | 窗口被 ESC 关掉了（只关窗口不停节点）或 `show_image:=false` | 重启节点；核对 launch 参数 |
+| UVC 下 `dx` 与实际距离差一个比例 | 用了按 `hfov_deg` 估算的内参 | 棋盘格标定后填 `camera_fx/fy/cx/cy`，见 11.1 |
+| `参数 T_B_C 无效: ... 不是正交旋转矩阵` | 矩阵填成平移/缩放，或抄漏数字 | 对照 11.2 检查 16 个数与最后一行 |
+| `旋转部分行列式不为 +1` | 轴方向含镜像（左右手系混了） | 检查 `y` 轴方向；用示教代替手推 |
+| `目标相对当前机体倾角异常` | `T_tag_B_goal` 的旋转写反/写转置 | 用 `~/record_goal` 重新示教 |
+| 越走越远 | `T_B_C` 或 `T_tag_B_goal` 转置写反 | 先看 `~/goal_pose_body` 的 dx 符号：目标在前方应为正 |
+| 发了命令机器人不动 | `mode` 为 0 / 底层 `rl_sar` 没启动 / 遥控器仍占控制 | 检查 `cmd_mode=2`，`ros2 topic echo /robot_move_cmd` |
+| `ros2 topic hz /robot_move_cmd` 无数据或不是 50 Hz | 未激活（`auto_start: false`）、`cmd_output: none`、或 `control_rate` 被改 | 先 `~/start`；核对 `cmd_output` 与 `control_rate: 50.0` |
+| 机器人被别的节点抢着动 | 同时跑了 `obstacle_game` / `remote_node`，它们也发 `robot_move_cmd` | 关掉，测试期间只留 `rl_real_atdog2` + `tag_approach` |
+| 一直在原地转 | `yaw_align_band` 太小或 `yaw` 误差符号反 | 适当放大 band；核对 `T_tag_B_goal` 旋转 |
+| 到位后还微微动 | `pos_tolerance` 太严 / 电机零漂 | 放宽阈值，或到位后调 `~/stop` |
+| 一遮住 tag 就冲出去 | 不会：超时立即零速 | 确认 `lost_timeout` 不要设太大（默认 0.5 s） |
+
+### 11.9 测试通过后怎么接回完整链路
+
+测试阶段把常数位姿塞在矩阵里；转正式链路时把它们「拆开」即可：
+
+| 测试矩阵 | 完整链路中的对应物 |
+| --- | --- |
+| `T_B_C`（相机外参） | URDF / `static_transform_publisher` 的 `base_link -> camera_color_optical_frame`，见 4.2 |
+| `T_tag_B_goal`（目标站位） | `config/localizer.yaml` 的 `tag_poses`（tag 在 map 中的位姿），见 4.3 |
+| `T_B_tag` 的换算 | `lookupTransform(lidar_frame, camera_frame)` 由 TF 树给出，见第 3 节 |
+
+之后回到第 6 节启动 `full_localization.launch.py`，让 `/initialpose` 交给 AMCL，
+由激光扫描与地图匹配继续精修位姿。
 
 ---
 

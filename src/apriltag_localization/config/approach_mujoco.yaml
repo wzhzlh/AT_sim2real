@@ -1,0 +1,36 @@
+# Applied after approach.yaml when use_mujoco:=true.
+# Matches scene_tag.xml, tag_camera and apriltag_5.xml (black border 0.24 m).
+/tag_approach:
+  ros__parameters:
+    image_source: "ros"
+    image_topic: "/mujoco/camera/image_raw"
+    camera_info_topic: "/mujoco/camera/camera_info"
+    tag_id: 5
+    tag_size: 0.24
+    T_B_C: [0.0, 0.0, 1.0, 0.1948,
+            -1.0, 0.0, 0.0, 0.0,
+            0.0, -1.0, 0.0, 0.1465,
+            0.0, 0.0, 0.0, 1.0]
+    # Uses the decoded corner frame from tag_approach solvePnP.
+    # Target base faces +world X, 0.6 m from tag plane.
+    T_tag_B_goal: [0.0, 1.0, 0.0, 0.0,
+                   0.0, 0.0, -1.0, 0.1465,
+                   -1.0, 0.0, 0.0, 0.6,
+                   0.0, 0.0, 0.0, 1.0]
+    cmd_output: "cmd_vel"
+    twist_topic: "/mujoco/cmd_vel"
+    auto_start: false
+    # A zero-speed policy still drifts; request position-controlled stand on stop.
+    stand_topic: "/mujoco/stand"
+    latch_goal: false
+    track_after_arrival: true
+    tracking_resume_distance: 0.08
+    tracking_resume_yaw_deg: 8.0
+    max_vx: 0.25
+    # Leave room for the small base shift when changing from policy to stand.
+    pos_tolerance: 0.04
+    min_velocity: 0.005
+    kp_x: 1.2
+    kp_y: 1.2
+    # The policy gait clock requires linear commands >0.08 m/s to restart.
+    minimum_tracking_speed: 0.09

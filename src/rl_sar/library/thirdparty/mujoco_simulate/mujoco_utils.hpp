@@ -366,6 +366,7 @@ void PhysicsLoop(mj::Simulate& sim) {
             sim.speed_changed = false;
 
             // run single step, let next iteration deal with timing
+            if (sim.physics_control) {sim.physics_control();}
             mj_step(m, d);
             const char* message = Diverged(m->opt.disableflags, d);
             if (message) {
@@ -397,6 +398,7 @@ void PhysicsLoop(mj::Simulate& sim) {
               sim.InjectNoise();
 
               // call mj_step
+              if (sim.physics_control) {sim.physics_control();}
               mj_step(m, d);
               const char* message = Diverged(m->opt.disableflags, d);
               if (message) {

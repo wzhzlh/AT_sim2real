@@ -1336,6 +1336,10 @@ void UiModify(mjUI* ui, mjuiState* state, mjrContext* con) {
 void UiEvent(mjuiState* state) {
   mj::Simulate* sim = static_cast<mj::Simulate*>(state->userdata);
 
+  if (state->type == mjEVENT_KEY && sim->control_key && sim->control_key(state->key)) {
+    return;
+  }
+
   // call UI 0 if event is directed to it
   if ((state->dragrect==sim->ui0.rectid) ||
       (state->dragrect==0 && state->mouserect==sim->ui0.rectid) ||
@@ -2713,6 +2717,9 @@ void Simulate::RenderLoop() {
       }
     }  // MutexLock (unblocks simulation thread)
 
+    if (sensor_render && m_ && d_) {
+      sensor_render(m_, d_, platform_ui->mjr_context());
+    }
     // render while simulation is running
     this->Render();
 

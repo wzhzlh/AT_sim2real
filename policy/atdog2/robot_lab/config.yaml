@@ -5,6 +5,26 @@ atdog2/robot_lab:
   model_name: "policy.pt"
   num_observations: 47
   observations: ["phase", "ang_vel", "gravity_vec", "commands", "dof_pos", "dof_vel", "actions"]
+  # Command-driven gait clock; copy this block from policy_metadata.json ("gait_clock")
+  # when a new policy is exported. Remove it to fall back to the episode-time sine.
+  gait_clock:
+    version: 1
+    cycle_time: 0.5
+    duty_factor: 0.6
+    transition_width: 0.05
+    linear_enter: 0.08
+    linear_exit: 0.04
+    angular_enter: 0.10
+    angular_exit: 0.05
+    control_dt: 0.02  # dt * decimation of this robot config
+    initial_phase: 0.0
+    encoding: ["sin", "cos"]
+    foot_order: ["FL", "FR", "RL", "RR"]
+    phase_offsets: [0.0, 0.5, 0.5, 0.0]
+    stance_interval: "[0, duty_factor)"
+    stop_rule: "finish_current_swing_then_freeze_in_double_support"
+    update_order: "reward_with_action_phase_then_update_clock_then_next_observation"
+  # Legacy fallback only: used when the gait_clock block above is removed.
   cycle_time: 0.5
   # The exported six-frame policy expects oldest to current; index 0 is current.
   observations_history: [5, 4, 3, 2, 1, 0]

@@ -13,10 +13,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ---------------- ROS2 依赖 ----------------
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(robot_msgs REQUIRED)
 
 # ---------------- 第三方依赖 ----------------
 # 这三个库来自 ~/qq_down/D435_apriltag/tag.cpp 的原生 C++ 方案：
@@ -82,30 +86,11 @@ if(BUILD_TESTING)
 endif()
 
 if(TAG_DEPS_READY)
-  add_executable(apriltag_localizer
-    src/apriltag_localizer.cpp
-  )
-
-  target_include_directories(apriltag_localizer
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  )
-
-  # 第三方头文件按 SYSTEM 引入：AprilTag 的 matd.h 用了 C 柔性数组，
-  # 在 -Wpedantic 下会报 "ISO C++ forbids flexible array member"。
-  # 本项目自身代码仍保持 -Wall -Wextra -Wpedantic 全量检查。
-  target_include_directories(apriltag_localizer SYSTEM PRIVATE
-    ${OpenCV_INCLUDE_DIRS}
-    ${APRILTAG_INCLUDE_DIRS}
-  )
-
-  ament_target_dependencies(apriltag_localizer
-    rclcpp
-    geometry_msgs
-    std_srvs
-    tf2
-    tf2_ros
-  )
+  # 两个节点共用同一套 D435 + AprilTag + OpenCV 依赖：
+  #   apriltag_localizer : Tag 绝对地标 -> map/odom TF + 校正 Odometry
+  #   tag_approach       : 无雷达纯视觉测试 -> 走到 tag 前固定位姿
+  add_executable(apriltag_localizer src/apriltag_localizer.cpp)
+  add_executable(tag_approach src/tag_approach.cpp)
 
   if(TARGET realsense2::realsense2)
     set(REALSENSE_TARGET realsense2::realsense2)
@@ -115,23 +100,51 @@ if(TAG_DEPS_READY)
     set(REALSENSE_TARGET realsense2)
   endif()
 
-  target_link_libraries(apriltag_localizer
-    ${OpenCV_LIBS}
-    ${REALSENSE_TARGET}
-    ${APRILTAG_LIBRARIES}
-  )
-
-  # 用户级安装（~/.local、/usr/local）的 .so 可能不在 ld 默认搜索路径，
-  # 写入 RPATH，保证 ros2 run 时能直接加载 libapriltag.so。
-  if(APRILTAG_LIBRARY_DIR)
-    set_target_properties(apriltag_localizer PROPERTIES
-      BUILD_RPATH "${APRILTAG_LIBRARY_DIR}"
-      INSTALL_RPATH "${APRILTAG_LIBRARY_DIR}"
+  foreach(tag_target IN ITEMS apriltag_localizer tag_approach)
+    target_include_directories(${tag_target}
+    PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     )
-  endif()
+
+    # 第三方头文件按 SYSTEM 引入：AprilTag 的 matd.h 用了 C 柔性数组，
+    # 在 -Wpedantic 下会报 "ISO C++ forbids flexible array member"。
+    # 本项目自身代码仍保持 -Wall -Wextra -Wpedantic 全量检查。
+    target_include_directories(${tag_target} SYSTEM PRIVATE
+      ${OpenCV_INCLUDE_DIRS}
+      ${APRILTAG_INCLUDE_DIRS}
+    )
+
+    ament_target_dependencies(${tag_target}
+      rclcpp
+      sensor_msgs
+      std_msgs
+      geometry_msgs
+      nav_msgs
+      std_srvs
+      tf2
+      tf2_ros
+      robot_msgs
+    )
+
+    target_link_libraries(${tag_target}
+      ${OpenCV_LIBS}
+      ${REALSENSE_TARGET}
+      ${APRILTAG_LIBRARIES}
+    )
+
+    # 用户级安装（~/.local、/usr/local）的 .so 可能不在 ld 默认搜索路径，
+    # 写入 RPATH，保证 ros2 run 时能直接加载 libapriltag.so。
+    if(APRILTAG_LIBRARY_DIR)
+      set_target_properties(${tag_target} PROPERTIES
+        BUILD_RPATH "${APRILTAG_LIBRARY_DIR}"
+        INSTALL_RPATH "${APRILTAG_LIBRARY_DIR}"
+      )
+    endif()
+  endforeach()
 
   install(TARGETS
     apriltag_localizer
+    tag_approach
     DESTINATION lib/${PROJECT_NAME}
   )
 endif()
@@ -143,6 +156,7 @@ install(DIRECTORY
 )
 
 install(FILES
+  README.md
   teach.md
   DESTINATION share/${PROJECT_NAME}
 )

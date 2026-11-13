@@ -6,8 +6,8 @@
 /apriltag_localizer:
   ros__parameters:
     # ---------------- 坐标系（务必与机器人实际 TF 树一致）----------------
-    map_frame: "map"                            # 场地/地图坐标系
-    base_frame: "base_link"                     # AMCL 定位的机器人本体坐标系
+    map_frame: "map"                            # 理想地图/示教轨迹坐标系
+    base_frame: "base_link"                     # 机器人本体坐标系
     lidar_frame: "laser"                        # 雷达坐标系（有些驱动叫 laser_link / rslidar）
     camera_frame: "camera_color_optical_frame"  # D435 彩色光学系：x 右 / y 下 / z 前
 
@@ -24,8 +24,8 @@
     show_image: false        # 有桌面时改 true 可看检测框/坐标轴；无显示环境必须 false
 
     # ---------------- tag 在场地 map 中的实际位姿（现场标定）----------------
-    # 格式: "id, x, y, z, roll, pitch, yaw"，单位 m / 度，RPY 为内旋 ZYX。
-    # tag 坐标系：原点=码中心，+x 沿图案正立时的 p0->p1，+y 沿 p0->p3，
+    # 格式: "id, x, y, z, roll, pitch, yaw"，单位 m / 度，R = Rz(yaw) * Ry(pitch) * Rx(roll)。
+    # tag 坐标系：原点=码中心，+x 沿 p1->p0，+y 沿 p3->p0（随解码方向旋转），
     #             +z 为码正面法向（指向能看见码的那一侧）。
     # 例 1: tag 平放在地面 (2.50, 1.20, 0)，图案 +x 指向 map 的 +X，+z 朝天。
     # 例 2: 同高度、图案相对 map 旋转 90 度 -> yaw=90。
@@ -34,22 +34,25 @@
       - "0, 2.50, 1.20, 0.00, 0.0, 0.0, 0.0"
       - "1, 2.50, -1.20, 0.00, 0.0, 0.0, 90.0"
 
-    # ---------------- 初始化发布策略 ----------------
-    trigger_mode: "auto_once"   # auto_once=启动后只发一次 | manual=只由服务触发 | continuous=每个采样周期都发(危险)
-    min_samples: 10             # 累积多少帧有效检测取均值后发布，抑制 PnP 抖动
-    max_spread: 0.08            # 样本平移最大离散度 [m]，超阈值丢弃本轮（机器人应在静止时初始化）
-    require_subscriber: true    # 必须等 AMCL 订阅了 /initialpose 才发，避免一次性消息丢失
+    # ---------------- 理想地图 <- 雷达现实 odom ----------------
+    # map_frame 是理想/示教轨迹所在坐标系；odom_frame 必须等于雷达消息 header.frame_id。
+    # 支持雷达 odom 的 child 为雷达或机体；必须有 child 到 base_frame 的静态外参。
+    odom_frame: "odom"
+    odom_topic: "/odom"
+    corrected_odom_topic: "/odom_corrected"
+    tf_update_hz: 30.0
+    odom_history_sec: 5.0
+    max_sync_error: 0.10       # 图像与 odom 最大时间差 [s]；插值时两侧均须满足
 
-    # /initialpose 协方差用的标准差（代码里会平方成方差）
-    # 视觉初值越可信，值越小 -> 粒子云越集中；过大则 AMCL 可能收敛到错误的局部极值。
-    sigma_x: 0.15              # [m]
-    sigma_y: 0.15              # [m]
-    sigma_yaw: 0.10            # [rad] 约 5.7 度
-
-    # ---------------- TF / 调试 ----------------
-    tf_timeout: 0.2            # 查静态外参的超时 [s]
-    max_tilt_deg: 30.0         # 解出的 map->base 允许的 roll/pitch 上限；超了说明 tag RPY/外参旋转填反，不发布初值
-    publish_debug_poses: true  # 发布 ~/tag_pose_camera、~/tag_pose_lidar、~/lidar_pose_map
+    # 每帧先算 T_map_odom，再平均校正量（支持运动中采样，保留完整 xyz/旋转）。
+    trigger_mode: "auto_once" # auto_once=首次对齐后保持；manual=服务触发；continuous=持续纠偏
+    min_samples: 10
+    max_spread: 0.08          # 校正变换的三维平移离散上限 [m]
+    max_rotation_spread_deg: 5.0
+    max_sample_gap: 0.5       # 有效样本间隔超出此值，重新累积 [s]
+    tf_timeout: 0.2
+    max_tilt_deg: 30.0        # map->base 的 roll/pitch 合理性检查
+    publish_debug_poses: true
 
     # ---------------- 可选：由本节点发布相机外参静态 TF ----------------
     # 若 robot_state_publisher / 相机驱动已经发布了 base_link -> camera_frame，

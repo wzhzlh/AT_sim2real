@@ -1,22 +1,14 @@
-// =====================================================================
-//  apriltag_localization / apriltag_localizer
-//
-//  来源：~/qq_down/D435_apriltag/tag.cpp（C++ 版 D435 + AprilTag + solvePnP）
-//  改造：把「打印 tag 相对相机位姿」升级为 ROS2 视觉重定位节点
-//
-//    1) RealSense D435 取图，apriltag 检测，cv::solvePnP 得到 T_C_tag
-//    2) TF: camera -> lidar，得到雷达系下的目标位姿 T_L_tag
-//    3) 结合人工标定的 tag 场地位置 T_M_tag，反算 T_M_L / T_M_B
-//    4) 发布 geometry_msgs/PoseWithCovarianceStamped 到 /initialpose
-//    5) AMCL 收到初值后用激光 scan 与地图匹配继续修正位姿
-//
-//  详细推导与操作步骤见本包 teach.md
-// =====================================================================
+// AprilTag 绝对地标重定位：M=理想地图，O=雷达现实 odom，B=机器人。
+// 每帧按图像时间配对：T_M_O = T_M_B(tag) * inverse(T_O_B)。
+// 持续广播 M -> O，并发布 T_M_child = T_M_O * T_O_child 的 Odometry。
+// 不发布 O -> child（由雷达负责），不依赖 AMCL。
 
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <deque>
+#include <algorithm>
 #include <iomanip>
 #include <map>
 #include <memory>
@@ -39,7 +31,7 @@ extern "C" {
 
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
-#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "std_srvs/srv/trigger.hpp"
 #include "tf2/exceptions.h"
@@ -47,6 +39,7 @@ extern "C" {
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/create_timer_ros.h"
 #include "tf2_ros/static_transform_broadcaster.h"
+#include "tf2_ros/transform_broadcaster.h"
 #include "tf2_ros/transform_listener.h"
 
 #include "apriltag_localization/pose_math.hpp"
@@ -81,13 +74,9 @@ public:
     capture_thread_ = std::thread(&AprilTagLocalizer::captureLoop, this);
 
     RCLCPP_INFO(get_logger(),
-      "AprilTag 重定位节点已启动 | map=%s base=%s lidar=%s camera=%s | "
-      "tag_size=%.4f m | 已加载 %zu 个 tag 标定值 | trigger_mode=%s",
-      map_frame_.c_str(), base_frame_.c_str(), lidar_frame_.c_str(),
-      camera_frame_.c_str(), tag_size_, tag_poses_.size(), trigger_mode_.c_str());
-    RCLCPP_INFO(get_logger(),
-      "等待有效检测；%s 后把解算的 map 位姿发布到 /initialpose",
-      trigger_mode_ == "manual" ? "调用 ~/relocalize 服务" : "累积到 min_samples 帧");
+      "Tag 重定位：%s -> %s；输入 %s，校正输出 %s；模式 %s，%zu 个地标",
+      map_frame_.c_str(), odom_frame_.c_str(), odom_topic_.c_str(),
+      corrected_odom_topic_.c_str(), trigger_mode_.c_str(), tag_poses_.size());
   }
 
   ~AprilTagLocalizer() override
@@ -126,15 +115,13 @@ private:
     min_samples_ = declare_parameter<int>("min_samples", 10);
     max_spread_ = declare_parameter<double>("max_spread", 0.08);
     trigger_mode_ = declare_parameter<std::string>("trigger_mode", "auto_once");
-    require_subscriber_ = declare_parameter<bool>("require_subscriber", true);
-
-    sigma_x_ = declare_parameter<double>("sigma_x", 0.15);
-    sigma_y_ = declare_parameter<double>("sigma_y", 0.15);
-    sigma_yaw_ = declare_parameter<double>("sigma_yaw", 0.10);
+    max_rotation_spread_ = pm::deg2rad(
+      declare_parameter<double>("max_rotation_spread_deg", 5.0));
+    max_sample_gap_ = declare_parameter<double>("max_sample_gap", 0.5);
+    publish_debug_poses_ = declare_parameter<bool>("publish_debug_poses", true);
 
     tf_timeout_ = declare_parameter<double>("tf_timeout", 0.2);
     max_tilt_rad_ = pm::deg2rad(declare_parameter<double>("max_tilt_deg", 30.0));
-    publish_debug_poses_ = declare_parameter<bool>("publish_debug_poses", true);
     show_image_ = declare_parameter<bool>("show_image", false);
 
     image_width_ = declare_parameter<int>("image_width", 640);
@@ -150,6 +137,22 @@ private:
     camera_tf_parent_ = declare_parameter<std::string>("camera_tf_parent", "base_link");
     camera_in_parent_ = declare_parameter<std::vector<double>>(
       "camera_in_parent", std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+
+    odom_frame_ = declare_parameter<std::string>("odom_frame", "odom");
+    odom_topic_ = declare_parameter<std::string>("odom_topic", "/odom");
+    corrected_odom_topic_ = declare_parameter<std::string>(
+      "corrected_odom_topic", "/odom_corrected");
+    tf_update_hz_ = declare_parameter<double>("tf_update_hz", 30.0);
+    odom_history_sec_ = declare_parameter<double>("odom_history_sec", 5.0);
+    max_sync_error_ = declare_parameter<double>("max_sync_error", 0.10);
+    if (map_frame_.empty() || odom_frame_.empty() || base_frame_.empty() ||
+        map_frame_ == odom_frame_ || base_frame_ == map_frame_ ||
+        base_frame_ == odom_frame_ || odom_topic_ == corrected_odom_topic_ ||
+        tf_update_hz_ <= 0.0 || odom_history_sec_ <= 0.0 || max_sync_error_ < 0.0 ||
+        max_sample_gap_ <= 0.0 || max_spread_ <= 0.0 || max_rotation_spread_ <= 0.0)
+    {
+      throw std::runtime_error("帧名、输入输出话题或采样/时间参数无效");
+    }
 
     if (min_samples_ < 1) {
       min_samples_ = 1;
@@ -177,9 +180,7 @@ private:
         cfg.id, text.c_str());
     }
     if (tag_poses_.empty()) {
-      RCLCPP_WARN(get_logger(),
-        "参数 tag_poses 为空，无法解算 map 位姿！"
-        "请在 config/localizer.yaml 中按 id,x,y,z,roll,pitch,yaw 填写现场标定值");
+      throw std::runtime_error("tag_poses 为空，请先填写理想地图中的 Tag 绝对位姿");
     }
   }
 
@@ -194,9 +195,11 @@ private:
     tf_buffer_->setCreateTimerInterface(timer_interface);
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-    // /initialpose 是 nav2_amcl 的标准初值接口
-    initial_pose_pub_ =
-      create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/initialpose", 1);
+    corrected_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(
+      corrected_odom_topic_, rclcpp::QoS(50));
+    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+      odom_topic_, rclcpp::SensorDataQoS(),
+      [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) { onOdometry(*msg); });
 
     // 三个中间结果，供 rviz / 命令行核对位姿链每一步是否正确
     tag_pose_camera_pub_ =
@@ -214,12 +217,17 @@ private:
         {
           std::lock_guard<std::mutex> lock(samples_mutex_);
           samples_.clear();
+          last_sample_ns_ = 0;
+          need_publish_.store(true);
         }
-        need_publish_.store(true);
         resp->success = true;
         resp->message = "已重新触发 AprilTag 重定位，正在累积检测样本";
         RCLCPP_INFO(get_logger(), "收到 ~/relocalize，重新采集样本");
       });
+
+    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+    tf_timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / tf_update_hz_),
+      [this]() { publishOdomCorrection(); });
   }
 
   void publishCameraStaticTf()
@@ -287,15 +295,16 @@ private:
       "D435 彩色流 %dx%d@%d, fx=%.2f fy=%.2f cx=%.2f cy=%.2f",
       image_width_, image_height_, fps_, intr.fx, intr.fy, intr.ppx, intr.ppy);
 
-    // 与 D435_apriltag/tag.cpp 完全一致的角点约定：
-    // p[0]->(-s,-s), p[1]->(s,-s), p[2]->(s,s), p[3]->(-s,s)
-    // 由此确定 tag 坐标系：+x 沿 p0->p1，+y 沿 p0->p3，+z 为码正面法向。
+    // apriltag 的 p[] 从 tag 右上角开始、绕 tag 逆时针：
+    //   p[0]=右上 p[1]=左上 p[2]=左下 p[3]=右下
+    // （用 tag36h11 正立合成图实测确认；若按 (-s,-s) 起头，解出的 yaw 会恒定差 180°）
+    // 由此确定 tag 坐标系：+x 沿 p1->p0，+y 沿 p3->p0，+z 为码正面法向。
     const float s = tag_size_ / 2.0f;
     object_points_ = {
-      cv::Point3f(-s, -s, 0.0f),
-      cv::Point3f(s, -s, 0.0f),
       cv::Point3f(s, s, 0.0f),
       cv::Point3f(-s, s, 0.0f),
+      cv::Point3f(-s, -s, 0.0f),
+      cv::Point3f(s, -s, 0.0f),
     };
   }
 
@@ -325,11 +334,23 @@ private:
         continue;
       }
 
+      // 使用 RealSense 的系统/全局时间；硬件时间域只能以接收时间近似。
+      const auto received_at = now();
       const rs2::video_frame color_frame = frames.get_color_frame();
       if (!color_frame) {
         continue;
       }
 
+      rclcpp::Time stamp = received_at;
+      if (!get_parameter("use_sim_time").as_bool() &&
+          color_frame.get_frame_timestamp_domain() != RS2_TIMESTAMP_DOMAIN_HARDWARE_CLOCK)
+      {
+        stamp = rclcpp::Time(static_cast<int64_t>(color_frame.get_timestamp() * 1e6),
+          get_clock()->get_clock_type());
+      } else {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
+          "相机使用硬件时间/仿真时钟，以图像接收时刻近似采样时间；运动时注意传输延迟");
+      }
       cv::Mat bgr(
         cv::Size(color_frame.get_width(), color_frame.get_height()),
         CV_8UC3,
@@ -355,7 +376,7 @@ private:
         apriltag_detection_t * det = nullptr;
         zarray_get(detections, i, &det);
         // 一帧只用「第一个有效 tag」产生一个定位样本，避免多 tag 样本混在一起
-        if (processDetection(det, image, !localized_this_frame)) {
+        if (processDetection(det, image, !localized_this_frame, stamp)) {
           localized_this_frame = true;
         }
       }
@@ -375,7 +396,8 @@ private:
   // ------------------------------------------------------------- 单次检测
   // 返回 true 表示本帧已经用这个 tag 产生了一个定位样本
   bool processDetection(
-    const apriltag_detection_t * det, cv::Mat & image, bool allow_localization)
+    const apriltag_detection_t * det, cv::Mat & image, bool allow_localization,
+    const rclcpp::Time & stamp)
   {
     std::vector<cv::Point2f> image_points;
     image_points.reserve(4);
@@ -421,6 +443,7 @@ private:
     {
       return false;
     }
+    if (!cv::checkRange(rvec) || !cv::checkRange(tvec)) {return false;}
     if (tvec.at<double>(2) <= 0.0 || tvec.at<double>(2) > 10.0) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
         "tag %d 的 PnP 深度异常 z=%.3f，跳过", det->id, tvec.at<double>(2));
@@ -456,7 +479,7 @@ private:
 
     // 防呆：机器人本体在 map 中应当是水平的。若解出很大的 roll/pitch，
     // 几乎总是 tag_poses 的 RPY（尤其贴墙的 ±90°）或相机外参旋转填反了，
-    // 此时绝不把错误初值发给 AMCL。
+    // 此时不更新校正。
     double roll = 0.0, pitch = 0.0, yaw = 0.0;
     tf2::Matrix3x3(result.T_M_B.getRotation()).getRPY(roll, pitch, yaw);
     if (std::fabs(roll) > max_tilt_rad_ || std::fabs(pitch) > max_tilt_rad_) {
@@ -482,7 +505,22 @@ private:
       result.T_L_tag.getOrigin().z(),
       pose2d.x, pose2d.y, pm::rad2deg(pose2d.yaw));
 
-    pushSample(pose2d);
+    if (!need_publish_.load()) {
+      return true;
+    }
+    tf2::Transform T_O_child;
+    std::string child;
+    if (!odometryAt(stamp, T_O_child, child)) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000,
+        "无图像时刻对应的 %s 里程计，等待同步（检查话题、时间戳与帧名）", odom_topic_.c_str());
+      return false;
+    }
+    tf2::Transform T_child_B;
+    if (!lookupTf(child, base_frame_, T_child_B)) {
+      return false;
+    }
+    // 先逐帧反解修正量再平均；机器人运动不会混入校正变换。
+    pushSample(result.T_M_B * (T_O_child * T_child_B).inverse(), stamp);
     return true;
   }
 
@@ -522,83 +560,178 @@ private:
     pub->publish(msg);
   }
 
-  // ------------------------------------------------------------- 样本与发布
-  void pushSample(const pm::Pose2D & sample)
+  static tf2::Transform poseTransform(const geometry_msgs::msg::Pose & p)
   {
-    std::optional<pm::SampleResult> ready;
+    tf2::Quaternion q(p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w);
+    return tf2::Transform(q.normalized(), tf2::Vector3(p.position.x, p.position.y, p.position.z));
+  }
+
+  void onOdometry(const nav_msgs::msg::Odometry & msg)
+  {
+    const auto & p = msg.pose.pose;
+    const auto & q = p.orientation;
+    const double norm = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
+    if (msg.header.frame_id != odom_frame_ || msg.child_frame_id.empty() ||
+        msg.child_frame_id == map_frame_ || msg.child_frame_id == odom_frame_ ||
+        !std::isfinite(p.position.x) || !std::isfinite(p.position.y) ||
+        !std::isfinite(p.position.z) || !std::isfinite(norm) || norm < 1e-12 ||
+        rclcpp::Time(msg.header.stamp).nanoseconds() == 0)
     {
-      std::lock_guard<std::mutex> lock(samples_mutex_);
-      samples_.push_back(sample);
-      if (static_cast<int>(samples_.size()) >= min_samples_) {
-        const auto res = pm::summarize(samples_, max_spread_);
-        samples_.clear();
-        if (res.valid) {
-          ready = res;
-        } else {
-          RCLCPP_WARN(get_logger(),
-            "样本离散度 %.3f m > max_spread %.3f m（机器人可能在动或检测抖动），本轮丢弃",
-            res.spread, max_spread_);
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000,
+        "忽略无效 odom：需要 frame_id=%s、有效 child、非零时间戳及有限位姿",
+        odom_frame_.c_str());
+      return;
+    }
+    std::optional<tf2::Transform> correction;
+    {
+      std::lock_guard<std::mutex> lock(odom_mutex_);
+      if (!odom_history_.empty() &&
+          (msg.child_frame_id != odom_history_.back().child_frame_id ||
+          rclcpp::Time(msg.header.stamp) <= rclcpp::Time(odom_history_.back().header.stamp)))
+      {
+        RCLCPP_WARN(get_logger(), "odom 时间倒退或 child 改变，忽略本帧；雷达重启后请重启重定位节点");
+        return;
+      }
+      odom_history_.push_back(msg);
+      while (odom_history_.size() > 2 &&
+          (rclcpp::Time(msg.header.stamp) -
+          rclcpp::Time(odom_history_.front().header.stamp)).seconds() > odom_history_sec_)
+      {
+        odom_history_.pop_front();
+      }
+      correction = current_M_O_;
+    }
+    if (!correction) {
+      return;  // 未完成定位时不把原始 odom 冒充理想地图位姿。
+    }
+    auto out = msg;
+    out.header.frame_id = map_frame_;
+    out.pose.pose = pm::toPose(*correction * poseTransform(msg.pose.pose));
+    // Odometry 的 twist 在 child_frame_id 中表达，保持不变。
+    // pose 协方差在父系表达，按 diag(R,R) * C * diag(R,R)^T 旋转。
+    const auto R = correction->getBasis();
+    out.pose.covariance.fill(0.0);
+    for (int i = 0; i < 6; ++i) {
+      for (int j = 0; j < 6; ++j) {
+        for (int a = 0; a < 3; ++a) {
+          for (int b = 0; b < 3; ++b) {
+            out.pose.covariance[6*i+j] += R[i%3][a] *
+              msg.pose.covariance[6*(3*(i/3)+a)+3*(j/3)+b] * R[j%3][b];
+          }
         }
       }
     }
-
-    if (ready && need_publish_.load()) {
-      publishInitialPose(*ready);
-    }
+    corrected_odom_pub_->publish(out);
   }
 
-  void publishInitialPose(const pm::SampleResult & res)
+  bool odometryAt(const rclcpp::Time & stamp, tf2::Transform & out, std::string & child)
   {
-    // AMCL 必须先启动并订阅 /initialpose，否则这条一次性消息会丢失
-    if (require_subscriber_ && initial_pose_pub_->get_subscription_count() == 0U) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000,
-        "尚无节点订阅 /initialpose（AMCL 未启动？），暂不发布初值");
+    std::lock_guard<std::mutex> lock(odom_mutex_);
+    if (odom_history_.empty()) {
+      return false;
+    }
+    const auto t = stamp.nanoseconds();
+    const auto next = std::lower_bound(odom_history_.begin(), odom_history_.end(), t,
+      [](const nav_msgs::msg::Odometry & m, int64_t n) {
+        return rclcpp::Time(m.header.stamp).nanoseconds() < n;
+      });
+    const auto nearest = next == odom_history_.end() ? std::prev(next) : next;
+    child = nearest->child_frame_id;
+    if (next == odom_history_.begin() || next == odom_history_.end()) {
+      if (std::abs(t - rclcpp::Time(nearest->header.stamp).nanoseconds()) * 1e-9 >
+          max_sync_error_) {return false;}
+      out = poseTransform(nearest->pose.pose);
+      return true;
+    }
+    const auto prev = std::prev(next);
+    const auto t0 = rclcpp::Time(prev->header.stamp).nanoseconds();
+    const auto t1 = rclcpp::Time(next->header.stamp).nanoseconds();
+    if (std::max(t-t0, t1-t) * 1e-9 > max_sync_error_) {return false;}
+    const double alpha = static_cast<double>(t-t0) / static_cast<double>(t1-t0);
+    const auto A = poseTransform(prev->pose.pose);
+    const auto B = poseTransform(next->pose.pose);
+    out = tf2::Transform(A.getRotation().slerp(B.getRotation(), alpha),
+      A.getOrigin().lerp(B.getOrigin(), alpha));
+    return true;
+  }
+
+  void pushSample(const tf2::Transform & sample, const rclcpp::Time & stamp)
+  {
+    std::lock_guard<std::mutex> lock(samples_mutex_);
+    if (!need_publish_.load()) {return;}
+    if (last_sample_ns_ != 0 &&
+        (stamp.nanoseconds()-last_sample_ns_) * 1e-9 > max_sample_gap_)
+    {
+      samples_.clear();
+    }
+    last_sample_ns_ = stamp.nanoseconds();
+    samples_.push_back(sample);
+    if (static_cast<int>(samples_.size()) < min_samples_) {return;}
+    tf2::Vector3 translation(0, 0, 0);
+    tf2::Quaternion rotation(0, 0, 0, 0);
+    const auto reference = samples_.front().getRotation();
+    for (const auto & s : samples_) {
+      translation += s.getOrigin();
+      auto q = s.getRotation();
+      if (q.dot(reference) < 0.0) {q = tf2::Quaternion(-q.x(), -q.y(), -q.z(), -q.w());}
+      rotation += q;
+    }
+    translation /= static_cast<double>(samples_.size());
+    if (rotation.length2() < 1e-12) {samples_.clear(); return;}
+    rotation.normalize();
+    bool valid = true;
+    for (const auto & s : samples_) {
+      valid = valid && (s.getOrigin()-translation).length() <= max_spread_ &&
+        rotation.angleShortestPath(s.getRotation()) <= max_rotation_spread_;
+    }
+    samples_.clear();
+    if (!valid) {
+      RCLCPP_WARN(get_logger(), "校正样本位置/角度离散过大，丢弃本轮");
       return;
     }
+    {
+      std::lock_guard<std::mutex> odom_lock(odom_mutex_);
+      current_M_O_ = tf2::Transform(rotation, translation);
+    }
+    if (trigger_mode_ != "continuous") {need_publish_.store(false);}
+    RCLCPP_INFO(get_logger(), "已对齐 %s -> %s：平移=(%.3f, %.3f, %.3f)，yaw=%.2f deg",
+      map_frame_.c_str(), odom_frame_.c_str(), translation.x(), translation.y(),
+      translation.z(), pm::rad2deg(tf2::getYaw(rotation)));
+  }
 
-    geometry_msgs::msg::PoseWithCovarianceStamped msg;
+  void publishOdomCorrection()
+  {
+    std::optional<tf2::Transform> correction;
+    {
+      std::lock_guard<std::mutex> lock(odom_mutex_);
+      correction = current_M_O_;
+    }
+    if (!correction) {return;}
+    geometry_msgs::msg::TransformStamped msg;
     msg.header.stamp = now();
     msg.header.frame_id = map_frame_;
-    msg.pose.pose.position.x = res.mean.x;
-    msg.pose.pose.position.y = res.mean.y;
-    msg.pose.pose.position.z = 0.0;
-    const auto q = pm::quaternionFromYaw(res.mean.yaw);
-    msg.pose.pose.orientation.x = q.x();
-    msg.pose.pose.orientation.y = q.y();
-    msg.pose.pose.orientation.z = q.z();
-    msg.pose.pose.orientation.w = q.w();
-
-    // 协方差是方差（标准差的平方）；AMCL 只用 x/y/yaw
-    msg.pose.covariance = pm::makeCovariance(
-      sigma_x_ * sigma_x_, sigma_y_ * sigma_y_, sigma_yaw_ * sigma_yaw_);
-
-    initial_pose_pub_->publish(msg);
-
-    RCLCPP_INFO(get_logger(),
-      "已发布 /initialpose: x=%.3f y=%.3f yaw=%.2f deg (基于 %zu 帧, 离散度 %.3f m)"
-      " -> 交给 AMCL 用激光 scan 与地图匹配继续修正",
-      res.mean.x, res.mean.y, pm::rad2deg(res.mean.yaw),
-      res.count, res.spread);
-
-    // 只初始化一次，之后不再重置 AMCL，让它靠激光匹配自主收敛
-    if (trigger_mode_ != "continuous") {
-      need_publish_.store(false);
-      RCLCPP_INFO(get_logger(),
-        "自动初始化已完成；如需再次重定位：ros2 service call "
-        "/apriltag_localizer/relocalize std_srvs/srv/Trigger");
-    }
+    msg.child_frame_id = odom_frame_;
+    const auto p = pm::toPose(*correction);
+    msg.transform.translation.x = p.position.x;
+    msg.transform.translation.y = p.position.y;
+    msg.transform.translation.z = p.position.z;
+    msg.transform.rotation = p.orientation;
+    tf_broadcaster_->sendTransform(msg);
   }
 
   // ---------------------------------------------------------------- 成员
   std::string map_frame_, base_frame_, lidar_frame_, camera_frame_;
   std::string trigger_mode_, camera_tf_parent_;
+  std::string odom_frame_, odom_topic_, corrected_odom_topic_;
+  double tf_update_hz_{30.0}, odom_history_sec_{5.0}, max_sync_error_{0.1};
+  double max_rotation_spread_{0.1}, max_sample_gap_{0.5};
+  int64_t last_sample_ns_{0};
   float tag_size_{0.118f};
   int target_tag_id_{-1}, min_samples_{10};
   int image_width_{640}, image_height_{480}, fps_{30}, nthreads_{4};
   double max_spread_{0.08}, tf_timeout_{0.2}, max_tilt_rad_{0.52};
-  double sigma_x_{0.15}, sigma_y_{0.15}, sigma_yaw_{0.10};
   double quad_decimate_{1.0}, quad_sigma_{0.0};
-  bool require_subscriber_{true}, publish_debug_poses_{true};
+  bool publish_debug_poses_{true};
   bool show_image_{false}, refine_edges_{true}, publish_camera_tf_{false};
   std::vector<double> camera_in_parent_;
 
@@ -610,11 +743,18 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> static_broadcaster_;
 
-  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
-    initial_pose_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr corrected_odom_pub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr
     tag_pose_camera_pub_, tag_pose_lidar_pub_, lidar_pose_map_pub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr trigger_srv_;
+
+  // 理想地图 -> 现实 odom 广播
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+  rclcpp::TimerBase::SharedPtr tf_timer_;
+  std::mutex odom_mutex_;
+  std::optional<tf2::Transform> current_M_O_;
+  std::deque<nav_msgs::msg::Odometry> odom_history_;
 
   rs2::pipeline pipe_;
   apriltag_family_t * tf_{nullptr};
@@ -623,7 +763,7 @@ private:
   std::atomic<bool> running_{false};
   std::atomic<bool> need_publish_{false};
   std::mutex samples_mutex_;
-  std::vector<pm::Pose2D> samples_;
+  std::vector<tf2::Transform> samples_;
   std::thread capture_thread_;
 };
 

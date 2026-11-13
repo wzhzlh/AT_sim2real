@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -260,6 +261,98 @@ inline bool parseTagPose(
   out.id = static_cast<int>(v[0]);
   out.T_M_tag = fromRpyDegrees(v[1], v[2], v[3], v[4], v[5], v[6]);
   return true;
+}
+
+// ---- 4x4 齐次矩阵（行主序 16 个数）--------------------------------
+//
+// 测试阶段不依赖 TF 树：人手标定的常数位姿直接以 4x4 矩阵写进参数文件。
+//   [ r00 r01 r02 tx ]
+//   [ r10 r11 r12 ty ]
+//   [ r20 r21 r22 tz ]
+//   [  0   0   0   1 ]
+// 解析时检查最后一行、旋转部分的正交性与 det=+1，尽早发现矩阵填反/含镜像。
+inline bool fromMatrix4x4(
+  const std::vector<double> & m, tf2::Transform & out, std::string & error)
+{
+  if (m.size() != 16U) {
+    error = "4x4 矩阵需要 16 个数（行主序），实际 " +
+            std::to_string(m.size()) + " 个";
+    return false;
+  }
+  for (int i = 0; i < 3; ++i) {
+    if (std::fabs(m[12 + i]) > 1e-6) {
+      error = "最后一行前三个数必须为 0";
+      return false;
+    }
+  }
+  if (std::fabs(m[15] - 1.0) > 1e-6) {
+    error = "最后一行第四个数必须为 1";
+    return false;
+  }
+
+  const tf2::Matrix3x3 R(
+    m[0], m[1], m[2],
+    m[4], m[5], m[6],
+    m[8], m[9], m[10]);
+
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      const double dot = R[0][i] * R[0][j] + R[1][i] * R[1][j] +
+                         R[2][i] * R[2][j];
+      if (std::fabs(dot - (i == j ? 1.0 : 0.0)) > 1e-3) {
+        error = "左上 3x3 不是正交旋转矩阵（请检查是否写成平移/缩放/转置）";
+        return false;
+      }
+    }
+  }
+  const double det =
+    R[0][0] * (R[1][1] * R[2][2] - R[1][2] * R[2][1]) -
+    R[0][1] * (R[1][0] * R[2][2] - R[1][2] * R[2][0]) +
+    R[0][2] * (R[1][0] * R[2][1] - R[1][1] * R[2][0]);
+  if (std::fabs(det - 1.0) > 1e-3) {
+    error = "旋转部分行列式不为 +1（坐标系含镜像，请检查轴方向）";
+    return false;
+  }
+
+  tf2::Quaternion q;
+  R.getRotation(q);
+  q.normalize();
+  out.setOrigin(tf2::Vector3(m[3], m[7], m[11]));
+  out.setRotation(q);
+  return true;
+}
+
+// tf2::Transform -> 16 个数，用于 ~/record_goal 把示教结果打印回参数文件。
+inline std::vector<double> toMatrix4x4(const tf2::Transform & T)
+{
+  const tf2::Matrix3x3 R(T.getRotation());
+  const auto & o = T.getOrigin();
+  return {
+    R[0][0], R[0][1], R[0][2], o.x(),
+    R[1][0], R[1][1], R[1][2], o.y(),
+    R[2][0], R[2][1], R[2][2], o.z(),
+    0.0, 0.0, 0.0, 1.0,
+  };
+}
+
+inline std::string matrixToString(const std::vector<double> & m)
+{
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(6);
+  for (int r = 0; r < 4; ++r) {
+    ss << "  [";
+    for (int c = 0; c < 4; ++c) {
+      ss << std::setw(11) << m[r * 4 + c];
+      if (c < 3) {
+        ss << ",";
+      }
+    }
+    ss << "]";
+    if (r < 3) {
+      ss << "\n";
+    }
+  }
+  return ss.str();
 }
 
 }  // namespace apriltag_localization::pose_math

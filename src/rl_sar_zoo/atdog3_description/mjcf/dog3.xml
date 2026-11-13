@@ -79,6 +79,9 @@
 
   <worldbody>
     <body name="base" pos="0 0 0.36" childclass="dog3">
+      <!-- Optical axes: right=-Y, down=-Z, forward=+X. -->
+      <camera name="tag_camera" pos="0.1948 0 0.1465"
+              xyaxes="0 -1 0 0 0 1" fovy="60"/>
       <inertial pos="-0.0145207371087189 -0.000215247711972927 0.0602027692280965" mass="5.24219432748543" fullinertia="0.00803280211542651 0.00943801972630504 0.0111142569974885 -2.15350564678197E-06 2.82723114664629E-06 -1.85882311062364E-07"/>
       <joint name="float_joint" type="free" limited="false" actuatorfrclimited="false"/>
       <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="base_link"/>

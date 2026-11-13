@@ -32,6 +32,11 @@ int RestartWithMesaGL(int argc, char** argv)
 
 RL_Sim::RL_Sim(int argc, char **argv)
 {
+#ifndef AT_MUJOCO_ROS2
+    if (std::getenv("AT_MUJOCO_ROS2")) {
+        throw std::runtime_error("Rebuild rl_sim_mujoco with -DMUJOCO_ROS2=ON for tag approach");
+    }
+#endif
     // Set static instance pointer early for signal handler
     instance = this;
 
@@ -102,6 +107,36 @@ RL_Sim::RL_Sim(int argc, char **argv)
 
     this->mj_model = m;
     this->mj_data = d;
+#ifdef AT_MUJOCO_ROS2
+    if (std::getenv("AT_MUJOCO_ROS2"))
+    {
+        if (!rclcpp::ok()) {
+            rclcpp::init(argc, argv, rclcpp::InitOptions(), rclcpp::SignalHandlerOptions::None);
+        }
+        ros_camera_ = std::make_unique<MujocoRosCamera>(mj_model);
+        // ROS launch does not forward terminal stdin. Accept FSM keys in the viewer.
+        sim->control_key = [this](int key) {
+            const std::lock_guard<std::recursive_mutex> lock(sim->mtx);
+            switch (key) {
+                case '0': control.SetKeyboard(Input::Keyboard::Num0); break;
+                case '1': control.SetKeyboard(Input::Keyboard::Num1); break;
+                case '9': control.SetKeyboard(Input::Keyboard::Num9); break;
+                case 'N': case 'n': control.SetKeyboard(Input::Keyboard::N); break;
+                case 'P': case 'p': control.SetKeyboard(Input::Keyboard::P); break;
+                case 'R': case 'r': control.SetKeyboard(Input::Keyboard::R); break;
+                case mjKEY_ENTER:
+                    sim->run = !sim->run;
+                    simulation_running = sim->run;
+                    break;
+                default: return false;
+            }
+            return true;
+        };
+        sim->sensor_render = [this](const mjModel* model, mjData* data, mjrContext& context) {
+            ros_camera_->render(model, data, context, sim->mtx);
+        };
+    }
+#endif
     this->SetupSysJoystick("/dev/input/js0", 16); // 16 bits joystick
 
     // read params from yaml
@@ -129,8 +164,36 @@ RL_Sim::RL_Sim(int argc, char **argv)
     // loop
     this->loop_control = std::make_shared<LoopFunc>("loop_control", this->params.Get<float>("dt"), std::bind(&RL_Sim::RobotControl, this));
     this->loop_rl = std::make_shared<LoopFunc>("loop_rl", this->params.Get<float>("dt") * this->params.Get<int>("decimation"), std::bind(&RL_Sim::RunModel, this));
-    this->loop_control->start();
-    this->loop_rl->start();
+#ifdef AT_MUJOCO_ROS2
+    if (ros_camera_) {
+        // Schedule control and policy by simulation time. Wall-clock threads
+        // otherwise miss motor updates while physics catches up after rendering.
+        const std::lock_guard<std::recursive_mutex> lock(sim->mtx);
+        const double dt = params.Get<float>("dt");
+        const double policy_dt = dt * params.Get<int>("decimation");
+        sim->physics_control = [this, dt, policy_dt,
+                                next_control = mj_data->time,
+                                next_policy = mj_data->time]() mutable {
+            const double time = mj_data->time;
+            if (next_control > time + dt) {next_control = time;}
+            if (next_policy > time + policy_dt) {next_policy = time;}
+            if (time + 1e-8 >= next_control) {
+                RobotControl();
+                next_control += dt;
+                if (time + 1e-8 >= next_policy) {
+                    RunModel();
+                    next_policy += policy_dt;
+                }
+            }
+            // Recompute the PD torque for every physics substep.
+            SetCommand(&robot_command);
+        };
+    } else
+#endif
+    {
+        this->loop_control->start();
+        this->loop_rl->start();
+    }
 
     // keyboard
     this->loop_keyboard = std::make_shared<LoopFunc>("loop_keyboard", 0.05, std::bind(&RL_Sim::KeyboardInterface, this));
@@ -161,6 +224,12 @@ RL_Sim::RL_Sim(int argc, char **argv)
 
 RL_Sim::~RL_Sim()
 {
+    if (sim) {
+        const std::lock_guard<std::recursive_mutex> lock(sim->mtx);
+        sim->physics_control = nullptr;
+        sim->sensor_render = nullptr;
+        sim->control_key = nullptr;
+    }
     // Clear static instance pointer
     instance = nullptr;
 
@@ -219,6 +288,37 @@ void RL_Sim::RobotControl()
 
     this->GetState(&this->robot_state);
 
+#ifdef AT_MUJOCO_ROS2
+    if (ros_camera_) {
+        if (control.current_keyboard == Input::Keyboard::Num0 ||
+            control.current_keyboard == Input::Keyboard::P ||
+            control.current_keyboard == Input::Keyboard::Num9) {
+            control.navigation_mode = false;
+            ros_camera_->requestTracking(false);
+            if (control.current_keyboard == Input::Keyboard::Num0 && fsm.current_state_ &&
+                fsm.current_state_->GetStateName() == "RLFSMStateGetUp") {
+                control.current_keyboard = Input::Keyboard::None;
+            }
+            std::cout << LOGGER::INFO << "Automatic tag tracking stopped" << std::endl;
+        } else if (control.current_keyboard == Input::Keyboard::Num1) {
+            control.navigation_mode = true;
+            ros_camera_->requestTracking(true);
+            // Fresh visual commands select RL locomotion after the start service.
+            control.current_keyboard = Input::Keyboard::None;
+            std::cout << LOGGER::INFO << "Automatic tag tracking enabled (RL locomotion)" << std::endl;
+        }
+    }
+    if (ros_camera_ && control.navigation_mode && fsm.current_state_)
+    {
+        const auto state = fsm.current_state_->GetStateName();
+        const int mode = ros_camera_->standMode();
+        if (mode == 1 && state == "RLFSMStateRLLocomotion") {
+            fsm.RequestStateChange("RLFSMStateGetUp");
+        } else if (mode == 0 && state == "RLFSMStateGetUp") {
+            fsm.RequestStateChange("RLFSMStateRLLocomotion");
+        }
+    }
+#endif
     this->StateController(&this->robot_state, &this->robot_command);
 
     if (this->control.current_keyboard == Input::Keyboard::R || this->control.current_gamepad == Input::Gamepad::RB_Y)
@@ -244,7 +344,19 @@ void RL_Sim::RobotControl()
         simulation_running = !simulation_running;
     }
 
-    this->control.ClearInput();
+#ifdef AT_MUJOCO_ROS2
+    if (ros_camera_ && this->control.current_keyboard == Input::Keyboard::N)
+    {
+        this->control.navigation_mode = !this->control.navigation_mode;
+        std::cout << LOGGER::INFO << "Tag approach control: "
+                  << (this->control.navigation_mode ? "ON" : "OFF") << std::endl;
+    }
+#endif
+    // Viewer and terminal keys are events. Do not restore a previous key:
+    // doing so can replay N and immediately disable visual control again.
+    this->control.current_keyboard = Input::Keyboard::None;
+    this->control.last_keyboard = Input::Keyboard::None;
+    this->control.current_gamepad = Input::Gamepad::None;
 
     this->SetCommand(&this->robot_command);
 }
@@ -359,11 +471,13 @@ void RL_Sim::RunModel()
         this->episode_length_buf += 1;
         this->obs.ang_vel = this->robot_state.imu.gyroscope;
         this->obs.commands = {this->control.x, this->control.y, this->control.yaw};
-        //not currently available for non-ros mujoco version
-        // if (this->control.navigation_mode)
-        // {
-        //     this->obs.commands = {(float)this->cmd_vel.linear.x, (float)this->cmd_vel.linear.y, (float)this->cmd_vel.angular.z};
-        // }
+#ifdef AT_MUJOCO_ROS2
+        if (ros_camera_ && this->control.navigation_mode)
+        {
+            const auto command = ros_camera_->command();
+            this->obs.commands = {command[0], command[1], command[2]};
+        }
+#endif
         this->obs.base_quat = this->robot_state.imu.quaternion;
         this->obs.dof_pos = this->robot_state.motor_state.q;
         this->obs.dof_vel = this->robot_state.motor_state.dq;
@@ -422,6 +536,10 @@ std::vector<float> RL_Sim::Forward()
     {
         actions = this->model->forward({clamped_obs});
     }
+
+    // Advance the gait clock once per control step, after this step's
+    // observation has been consumed, so the next observation carries it.
+    this->UpdateGaitClock();
 
     if (!this->params.Get<std::vector<float>>("clip_actions_upper").empty() && !this->params.Get<std::vector<float>>("clip_actions_lower").empty())
     {

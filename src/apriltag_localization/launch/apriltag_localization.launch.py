@@ -1,8 +1,4 @@
-"""只启动 AprilTag 视觉重定位节点。
-
-适用于：地图服务器、AMCL、雷达驱动、机器人 TF 已经由别的 launch 启动的场景。
-若希望一条命令把「地图 + AMCL + 视觉初值」整套拉起，用 full_localization.launch.py。
-"""
+"""启动 Tag 对齐现实雷达 odom 到理想地图的节点；雷达及外参 TF 需单独启动。"""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument

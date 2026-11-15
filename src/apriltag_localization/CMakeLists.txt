@@ -153,10 +153,10 @@ install(DIRECTORY
   launch
   config
   DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
 )
 
 install(FILES
-  README.md
   teach.md
   DESTINATION share/${PROJECT_NAME}
 )

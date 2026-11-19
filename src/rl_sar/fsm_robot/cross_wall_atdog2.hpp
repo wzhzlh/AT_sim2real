@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cross_wall.hpp"
+#include <atomic>
 
 class CrossWallStateAtdog2 {
 public:
@@ -10,6 +11,12 @@ public:
     std::tuple<Eigen::Vector3d, double> get_robot_mass_info(
         const Eigen::Vector3d& lf_joint_pos, const Eigen::Vector3d& rf_joint_pos,
         const Eigen::Vector3d& lb_joint_pos, const Eigen::Vector3d& rb_joint_pos);
+
+    // 由服务通信写入：0 = 正常执行当前动作，1 = 暂停并保持当前输出
+    std::atomic<int> action_pause{0};
+
+    // 注入 RL 配置中的站立关节角（dof 顺序 0=RF, 1=LF, 2=RB, 3=LB，每腿 3 个关节）
+    void setStandJointPos(const std::vector<float>& dof_pos);
 
     std::shared_ptr<Robot_t> robot;
     int cross_wall_stage{-1};
@@ -49,4 +56,17 @@ public:
 
     Cross_Step lf_step, rf_step, lb_step, rb_step;
     DiagonalWalkController diagonal_walk;
+
+    // stage 9 位控站立相关状态
+    Eigen::Vector3d stand_joint_pos[4];        // 站立目标关节角 (RF, LF, RB, LB)
+    Eigen::Vector3d stand_start_joint_pos[4];  // 进入 stage 9 瞬间的关节角
+    bool stand_target_ready{false};            // 是否已通过 setStandJointPos 注入目标
+    bool stand_initialized{false};
+    double stand_duration{1.5};                // 位控站立过渡时间(s)
+
+    // 暂停保持：缓存上一帧输出，并补偿暂停期间流逝的状态机时间
+    bool pause_active_{false};
+    bool has_last_target_{false};
+    std::chrono::steady_clock::time_point pause_start_time_;
+    RobotTarget last_target_;
 };

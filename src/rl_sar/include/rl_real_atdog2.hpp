@@ -21,6 +21,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <robot_msgs/msg/cmd.hpp>
 #include <robot_msgs/msg/int.hpp>
+#include <std_srvs/srv/set_bool.hpp>
 
 
 class RL_Real : public RL
@@ -33,6 +34,7 @@ private:
     rclcpp::Node::SharedPtr node_;      //用于ROS2订阅通信的节点
     rclcpp::Subscription<robot_msgs::msg::Cmd>::SharedPtr cmd_sub;
     rclcpp::Publisher<robot_msgs::msg::Int>::SharedPtr policy_done_pub_;
+    rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr cross_wall_pause_srv_;
     robot_msgs::msg::Cmd remote_cmd;
     int last_logged_remote_mode_ = -1;
     // rl functions

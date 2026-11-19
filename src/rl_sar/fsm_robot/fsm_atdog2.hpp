@@ -297,6 +297,8 @@ public:
     RLFSMStateCrosswall(RL *rl) : RLFSMState(*rl, "RLFSMStateCrosswall") {
         std::string urdf_path = "src/rl_sar_zoo/" + rl->robot_name + "_description/urdf/dog2.urdf";
         cross_wall_state = std::make_shared<CrossWallStateAtdog2>(urdf_path);
+        // stage 9 位控站立目标：复用 RL 配置中的标准站立关节角
+        cross_wall_state->setStandJointPos(rl->params.Get<std::vector<float>>("default_dof_pos"));
     }
     
     

@@ -671,6 +671,7 @@ if(SYSTEM_TYPE STREQUAL "Linux")
                 rclcpp
                 geometry_msgs
                 robot_msgs
+                std_srvs
             )
             install(TARGETS rl_real_atdog2 DESTINATION lib/${PROJECT_NAME})
         endif()

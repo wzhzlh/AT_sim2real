@@ -196,6 +196,29 @@ void RL_Sim::RobotControl()
 
     this->GetState(&this->robot_state);
 
+    // CMake 构建（无 ROS）下用终端键盘控制跨墙动作：o=继续执行，p=暂停保持
+    // KeyboardInterface() 已把 'o'/'p' 映射成 Keyboard::O / Keyboard::P，这里拦截并写入 action_pause
+    if (this->control.current_keyboard == Input::Keyboard::O ||
+        this->control.current_keyboard == Input::Keyboard::P)
+    {
+        auto it = this->fsm.states_.find("RLFSMStateCrosswall");
+        if (it != this->fsm.states_.end())
+        {
+            auto crosswall_state = std::dynamic_pointer_cast<atdog2_fsm::RLFSMStateCrosswall>(it->second);
+            if (crosswall_state && crosswall_state->cross_wall_state)
+            {
+                const int pause = (this->control.current_keyboard == Input::Keyboard::P) ? 1 : 0;
+                if (crosswall_state->cross_wall_state->action_pause.load() != pause)
+                {
+                    crosswall_state->cross_wall_state->action_pause.store(pause);
+                    std::cout << LOGGER::INFO << (pause ? "Cross-wall PAUSED (hold)" : "Cross-wall RESUMED") << std::endl;
+                }
+            }
+        }
+        // 消费掉按键：P 是全局切 Passive 的键，避免 FSM 误切状态
+        this->control.current_keyboard = this->control.last_keyboard;
+    }
+
     this->StateController(&this->robot_state, &this->robot_command);
 
     if (this->control.current_keyboard == Input::Keyboard::R || this->control.current_gamepad == Input::Gamepad::RB_Y)

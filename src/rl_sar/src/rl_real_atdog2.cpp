@@ -51,6 +51,30 @@ RL_Real::RL_Real(int argc, char** argv, const rclcpp::Node::SharedPtr node) {
         });
     policy_done_pub_ = node_->create_publisher<robot_msgs::msg::Int>("policy_done", 10);
 
+    // 跨墙动作暂停/继续：data=true(1) 暂停并保持，data=false(0) 继续执行
+    cross_wall_pause_srv_ = node_->create_service<std_srvs::srv::SetBool>(
+        "cross_wall_pause",
+        [this](
+            const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
+            std::shared_ptr<std_srvs::srv::SetBool::Response> response) {
+            auto it = this->fsm.states_.find("RLFSMStateCrosswall");
+            if (it != this->fsm.states_.end()) {
+                auto crosswall_state = std::dynamic_pointer_cast<atdog2_fsm::RLFSMStateCrosswall>(it->second);
+                if (crosswall_state && crosswall_state->cross_wall_state) {
+                    crosswall_state->cross_wall_state->action_pause.store(request->data ? 1 : 0);
+                    response->success = true;
+                    response->message = request->data ? "cross-wall paused (hold)" : "cross-wall resumed";
+                } else {
+                    response->success = false;
+                    response->message = "crosswall state unavailable";
+                }
+            } else {
+                response->success = false;
+                response->message = "crosswall state not found";
+            }
+            RCLCPP_INFO(node_->get_logger(), "%s", response->message.c_str());
+        });
+
 
     // 键盘控制、底层控制、策略推理循环
     this->loop_command = std::make_shared<LoopFunc>("loop_command", 0.05, std::bind(&RL_Real::KeyboardInterface, this));
@@ -143,6 +167,29 @@ void RL_Real::RobotControl() {
     }
     else {
         this->control.setMode(0);
+    }
+
+    // 终端键盘控制跨墙动作：o=继续执行，p=暂停保持（与 CMake 仿真、SetBool 服务共用 action_pause）
+    // KeyboardInterface() 已把 'o'/'p' 映射成 Keyboard::O / Keyboard::P
+    if (this->control.current_keyboard == Input::Keyboard::O ||
+        this->control.current_keyboard == Input::Keyboard::P)
+    {
+        auto it = this->fsm.states_.find("RLFSMStateCrosswall");
+        if (it != this->fsm.states_.end())
+        {
+            auto crosswall_state = std::dynamic_pointer_cast<atdog2_fsm::RLFSMStateCrosswall>(it->second);
+            if (crosswall_state && crosswall_state->cross_wall_state)
+            {
+                const int pause = (this->control.current_keyboard == Input::Keyboard::P) ? 1 : 0;
+                if (crosswall_state->cross_wall_state->action_pause.load() != pause)
+                {
+                    crosswall_state->cross_wall_state->action_pause.store(pause);
+                    RCLCPP_INFO(node_->get_logger(), "%s", pause ? "Cross-wall PAUSED (hold)" : "Cross-wall RESUMED");
+                }
+            }
+        }
+        // 消费掉按键：P 是全局切 Passive 的键，避免 FSM 误切状态
+        this->control.current_keyboard = this->control.last_keyboard;
     }
 
     // 执行状态机，送入state，输出command

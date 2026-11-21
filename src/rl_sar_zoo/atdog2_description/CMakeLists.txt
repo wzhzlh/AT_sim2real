@@ -7,7 +7,7 @@ find_package(urdf REQUIRED)
 find_package(xacro REQUIRED)
 find_package(robot_state_publisher REQUIRED)
 
-foreach(dir config launch meshes urdf xacro)
+foreach(dir meshes urdf mjcf)
     if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${dir})
         install(
             DIRECTORY ${dir}/
@@ -15,5 +15,8 @@ foreach(dir config launch meshes urdf xacro)
         )
     endif()
 endforeach()
+
+# Preserve relative includes used by scene_tag.xml in the installed tree.
+install(DIRECTORY ../common/ DESTINATION share/common)
 
 ament_package()

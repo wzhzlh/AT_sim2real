@@ -3,47 +3,7 @@ project(robot_msgs VERSION 3.0.0)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if($ENV{ROS_DISTRO} MATCHES "noetic")
-  find_package(catkin REQUIRED COMPONENTS
-    message_generation
-    std_msgs
-    geometry_msgs
-    sensor_msgs
-  )
-  add_message_files(
-    FILES
-    MotorCommand.msg
-    MotorState.msg
-    RobotCommand.msg
-    RobotState.msg
-    IMU.msg
-    Arm.msg
-    Arm4.msg
-    Armmode.msg
-    GM6020.msg
-    Joint.msg
-    RobStride.msg
-    Servo.msg
-    Vis.msg  )
-  generate_messages(
-    DEPENDENCIES
-    std_msgs
-    geometry_msgs
-    sensor_msgs
-  )
-  catkin_package(
-    CATKIN_DEPENDS
-    message_runtime
-    std_msgs
-    geometry_msgs
-    sensor_msgs
-  )
-  install(
-    DIRECTORY include/${PROJECT_NAME}/
-    DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-    FILES_MATCHING PATTERN "*.h"
-  )
-elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
   find_package(ament_cmake REQUIRED)
   find_package(rosidl_default_generators REQUIRED)
   find_package(builtin_interfaces REQUIRED)

@@ -43,44 +43,16 @@ docker exec -it rl_sar bash
 ```bash
 ./cmake_build/bin/rl_sim_mujoco <ROBOT> <SCENE>
 # Example:
-./cmake_build/bin/rl_sim_mujoco g1 scene_29dof
-./cmake_build/bin/rl_sim_mujoco go2 scene
-```
-
-### Gazebo Simulation
-
-```bash
-# Terminal 1: Launch Gazebo
-source install/setup.bash
-ros2 launch rl_sar gazebo.launch.py rname:=<ROBOT>
-
-# Example:
-source install/setup.bash
-ros2 launch rl_sar gazebo.launch.py rname:=g1
-
-# Terminal 2: Run controller
-source install/setup.bash
-ros2 run rl_sar rl_sim
-
-# Terminal 3: control via ros topic
-# Press N to enter navigation mode
-source install/setup.bash
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.5}}" -r 10
-# Note, current impl won't stop if the message is not received for a while, press N again to exit navigation mode
-
+./cmake_build/bin/rl_sim_mujoco atdog2 scene
+./cmake_build/bin/rl_sim_mujoco atdog3 scene_terrain
 ```
 
 ### Real Robot
 
 ```bash
-# Go2/Go2W
-./cmake_build/bin/rl_real_go2 <NETWORK_INTERFACE> [wheel]
-
-# G1 (29dofs)
-./cmake_build/bin/rl_real_g1 <NETWORK_INTERFACE>
-
-# A1
-./cmake_build/bin/rl_real_a1
+source install/setup.bash
+ros2 run rl_sar rl_real_atdog2
+# Alternatives: rl_real_atdog, rl_real_atdog3
 ```
 
 ## Controls
@@ -92,13 +64,12 @@ ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.5}}" -r 10
 | RB+DPadUp | Num1 | Basic locomotion |
 | LY/LX | W/S, A/D | Move forward/backward, left/right |
 | RX | Q/E | Yaw rotation |
-| RB+Y | R | Reset simulation (Gazebo) |
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `Dockerfile` | ROS2 Humble + Gazebo + MuJoCo + Real Robot |
+| `Dockerfile` | ROS2 Humble + MuJoCo + ATDog hardware |
 | `docker-compose.yml` | X11 + gamepad + network support |
 | `entrypoint.sh` | Sources ROS2 setup |
 
@@ -111,7 +82,6 @@ docker build -f docker/Dockerfile -t rl_sar:humble .
 
 ## Notes
 
-- Gazebo models (sun, ground_plane) are automatically downloaded during build
 - Policy files are mounted read-only from `../policy`
 - Container runs in privileged mode with host network for robot communication
 - Gamepad devices are passed through via `/dev/input`

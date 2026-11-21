@@ -39,7 +39,7 @@ body:
 - type: input
   attributes:
     label: ROS Version
-    placeholder: e.g. noetic, melodic
+    placeholder: e.g. foxy, humble
   validations:
     required: true
 - type: input

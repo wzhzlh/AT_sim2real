@@ -18,13 +18,13 @@ if(USE_CMAKE)
 endif()
 
 if(NOT USE_CMAKE)
-    if($ENV{ROS_DISTRO} MATCHES "noetic")
-        add_compile_definitions(USE_ROS1)
-    elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+    if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
         add_compile_definitions(USE_ROS2)
+    else()
+        message(FATAL_ERROR "Source ROS2 Foxy/Humble or set -DUSE_CMAKE=ON")
     endif()
 else()
-    message(WARNING "ROS_DISTRO not set, assuming non-ROS mode")
+    message(STATUS "Building without ROS integration")
     add_compile_definitions(USE_CMAKE)
 endif()
 
@@ -65,37 +65,14 @@ list(APPEND CMAKE_BUILD_RPATH ${RL_SAR_BUILD_RPATHS})
 list(APPEND CMAKE_INSTALL_RPATH ${RL_SAR_INSTALL_RPATHS})
 
 if(NOT USE_CMAKE)
-    if($ENV{ROS_DISTRO} MATCHES "noetic")
-        find_package(catkin REQUIRED COMPONENTS
-            controller_manager
-            genmsg
-            joint_state_controller
-            robot_state_publisher
-            roscpp
-            std_msgs
-            tf
-            geometry_msgs
-            robot_msgs
-            robot_joint_controller
-            rospy
-        )
-        catkin_package(
-            CATKIN_DEPENDS
-            robot_joint_controller
-            rospy
-        )
-    elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+    if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
         find_package(ament_cmake REQUIRED)
-        find_package(joint_state_broadcaster REQUIRED)
-        find_package(robot_state_publisher REQUIRED)
         find_package(rclcpp REQUIRED)
         find_package(std_msgs REQUIRED)
         find_package(robot_msgs REQUIRED)
-        find_package(robot_joint_controller REQUIRED)
         find_package(rclpy REQUIRED)
         find_package(std_srvs REQUIRED)
         find_package(geometry_msgs REQUIRED)
-        ament_package()
     endif()
 endif()
 
@@ -245,10 +222,6 @@ if(NOT USE_CMAKE)
         find_package(kdl_parser REQUIRED)
         find_package(orocos_kdl REQUIRED)
         message(STATUS "Found KDL parser and orocos_kdl")
-    elseif($ENV{ROS_DISTRO} MATCHES "noetic")
-        find_package(kdl_parser REQUIRED)
-        find_package(orocos_kdl REQUIRED)
-        message(STATUS "Found KDL parser and orocos_kdl (ROS1)")
     endif()
 else()
     # For non-ROS builds, try to find KDL system-wide
@@ -309,12 +282,6 @@ if(NOT USE_CMAKE)
 endif()
 endif()
 
-
-if(NOT USE_CMAKE)
-    if($ENV{ROS_DISTRO} MATCHES "noetic")
-        include_directories(${catkin_INCLUDE_DIRS})
-    endif()
-endif()
 
 include_directories(
     include
@@ -379,11 +346,6 @@ if(NOT USE_CMAKE)
         target_link_libraries(rl_sdk PUBLIC
             kdl_parser::kdl_parser
         )
-    elseif($ENV{ROS_DISTRO} MATCHES "noetic")
-        target_link_libraries(rl_sdk PUBLIC
-            ${kdl_parser_LIBRARIES}
-            ${orocos_kdl_LIBRARIES}
-        )
     endif()
 else()
     # For non-ROS builds, link KDL if found
@@ -415,33 +377,6 @@ if(NOT USE_CMAKE)
     endif()
 endif()
 
-# executable for rl sim
-if(NOT USE_CMAKE)
-    add_executable(rl_sim src/rl_sim.cpp)
-    target_link_libraries(rl_sim
-        rl_sdk
-        observation_buffer
-        ${YAML_CPP_LIBRARIES}
-        Threads::Threads
-    )
-    if($ENV{ROS_DISTRO} MATCHES "noetic")
-        target_link_libraries(rl_sim ${catkin_LIBRARIES})
-    elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
-        ament_target_dependencies(rl_sim
-            joint_state_broadcaster
-            robot_state_publisher
-            rclcpp
-            std_msgs
-            robot_msgs
-            robot_joint_controller
-            rclpy
-            std_srvs
-            geometry_msgs
-        )
-        install(TARGETS rl_sim DESTINATION lib/${PROJECT_NAME})
-    endif()
-endif()
-
 # executable for rl real atdog2 (ROS2 dependent)
 if(SYSTEM_TYPE STREQUAL "Linux")
     if(NOT USE_CMAKE)
@@ -453,9 +388,7 @@ if(SYSTEM_TYPE STREQUAL "Linux")
             observation_buffer
             ${YAML_CPP_LIBRARIES}
         )
-        if($ENV{ROS_DISTRO} MATCHES "noetic")
-            target_link_libraries(rl_real_atdog2 ${catkin_LIBRARIES})
-        elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+        if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
             ament_target_dependencies(rl_real_atdog2
                 rclcpp
                 geometry_msgs
@@ -477,9 +410,7 @@ if(SYSTEM_TYPE STREQUAL "Linux")
             observation_buffer
             ${YAML_CPP_LIBRARIES}
         )
-        if($ENV{ROS_DISTRO} MATCHES "noetic")
-            target_link_libraries(rl_real_atdog3 ${catkin_LIBRARIES})
-        elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+        if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
             ament_target_dependencies(rl_real_atdog3
                 rclcpp
                 geometry_msgs
@@ -501,9 +432,7 @@ if(SYSTEM_TYPE STREQUAL "Linux")
             observation_buffer
             ${YAML_CPP_LIBRARIES}
         )
-        if($ENV{ROS_DISTRO} MATCHES "noetic")
-            target_link_libraries(rl_real_atdog ${catkin_LIBRARIES})
-        elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+        if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
             ament_target_dependencies(rl_real_atdog
                 rclcpp
                 geometry_msgs
@@ -516,12 +445,7 @@ endif()
 
 # executable for actuator net
 if(NOT USE_CMAKE)
-    if($ENV{ROS_DISTRO} MATCHES "noetic")
-        catkin_install_python(PROGRAMS
-            scripts/actuator_net.py
-            DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-        )
-    elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+    if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
         install(PROGRAMS
             scripts/actuator_net.py
             DESTINATION lib/${PROJECT_NAME}
@@ -532,7 +456,7 @@ endif()
 if(NOT USE_CMAKE)
     if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
         install(
-            DIRECTORY launch worlds ${PROJECT_ROOT_DIR}/policy
+            DIRECTORY ${PROJECT_ROOT_DIR}/policy
             DESTINATION share/${PROJECT_NAME}/${dir}
         )
     endif()
@@ -726,3 +650,7 @@ if(USE_MUJOCO)
     message(STATUS "MuJoCo: Enabled")
 endif()
 message(STATUS "========================================")
+
+if(NOT USE_CMAKE)
+    ament_package()
+endif()

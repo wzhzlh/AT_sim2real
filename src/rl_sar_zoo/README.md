@@ -1,22 +1,12 @@
-# rl_sar_zoo
+# ATDog robot descriptions
 
-robot description packages for rl_sar.
+Local models for ATDog, ATDog2 and ATDog3. These packages are maintained in this project; the build does not fetch the upstream model zoo.
 
-rl_sar will automatically download this repository when needed.
+| Robot | URDF | MuJoCo scenes |
+| --- | --- | --- |
+| atdog | `urdf/dog.urdf` | `scene`, `scene_terrain` |
+| atdog2 | `urdf/dog2.urdf` | `scene`, `scene_terrain`, `scene_tag` |
+| atdog3 | `urdf/dog3.urdf` | `scene`, `scene_terrain`, `scene_tag` |
 
-Support List:
-
-|Robot Name (rname:=)|Gazebo|Mujoco|
-|-|-|-|
-|Unitree-A1 (a1)|✅|❌|
-|Unitree-Go2 (go2)|✅|✅|
-|Unitree-Go2W (go2w)|✅|✅|
-|Unitree-B2 (b2)|✅|✅|
-|Unitree-B2W (b2w)|✅|✅|
-|Unitree-G1 (g1)|✅|✅|
-|FFTAI-GR1T1 (gr1t1)|✅|❌|
-|FFTAI-GR1T2 (gr1t2)|✅|❌|
-|zhinao-L4W4 (l4w4)|✅|❌|
-|Deeprobotics-Lite3 (lite3)|✅|❌|
-|DDTRobot-Tita (tita)|✅|❌|
-|AgiBot D1 (d1)|✅|✅|
+Meshes and dynamics are retained. Shared AprilTag scene assets live in `common/mjcf`.
+ROS2 packages install the URDF, mesh and MJCF resources. See [workspace instructions](../../ATDOG_CLEANUP.md).

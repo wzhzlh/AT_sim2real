@@ -12,7 +12,7 @@
 4. [构建类型与选项缓存](#4-构建类型与选项缓存)
 5. [查找依赖 find_package](#5-查找依赖-find_package)
 6. [pkg-config 集成](#6-pkg-config-集成)
-7. [ROS1 catkin 与 ROS2 ament 双支持](#7-ros1-catkin-与-ros2-ament-双支持)
+7. [ROS2 ament 构建](#7-ros2-ament-构建)
 8. [添加目标 add_executable / add_library](#8-添加目标-add_executable--add_library)
 9. [包含目录 target_include_directories](#9-包含目录-target_include_directories)
 10. [链接库 target_link_libraries](#10-链接库-target_link_libraries)
@@ -242,57 +242,9 @@ target_link_libraries(atdog_leg_driver PUBLIC PkgConfig::LIBUSB)
 
 ---
 
-## 7. ROS1 catkin 与 ROS2 ament 双支持
+## 7. ROS2 ament 构建
 
-本项目大量使用 `$ENV{ROS_DISTRO}` 环境变量来同时支持 ROS1 和 ROS2。
-
-### 消息包的典型双支持结构（`src/robot_msgs/CMakeLists.txt`）
-
-```cmake
-if($ENV{ROS_DISTRO} MATCHES "noetic")
-  # === ROS1: catkin 方式 ===
-  find_package(catkin REQUIRED COMPONENTS
-    message_generation
-    std_msgs
-  )
-  add_message_files(FILES MotorCommand.msg MotorState.msg ...)
-  generate_messages(DEPENDENCIES std_msgs)
-  catkin_package(CATKIN_DEPENDS message_runtime std_msgs)
-
-elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
-  # === ROS2: ament 方式 ===
-  find_package(ament_cmake REQUIRED)
-  find_package(rosidl_default_generators REQUIRED)
-  rosidl_generate_interfaces(${PROJECT_NAME}
-    "msg/MotorCommand.msg"
-    "msg/Remote.msg"
-    DEPENDENCIES builtin_interfaces std_msgs
-  )
-  ament_export_dependencies(rosidl_default_runtime)
-  ament_package()
-endif()
-```
-
-### 控制器插件的双支持（`src/robot_joint_controller/CMakeLists.txt`）
-
-ROS1 用 `catkin_package()` + `include_directories` + `target_link_libraries`；
-ROS2 用 `find_package(ament_cmake)` + `ament_target_dependencies` + `ament_package()`。
-
-### ROS2 内版本区分（`src/robot_joint_controller/CMakeLists.txt:32-38`）
-
-```cmake
-if($ENV{ROS_DISTRO} MATCHES "foxy")
-    add_definitions(-DROS_DISTRO_FOXY)
-elseif($ENV{ROS_DISTRO} MATCHES "humble")
-    add_definitions(-DROS_DISTRO_HUMBLE)
-else()
-    add_definitions(-DROS_DISTRO_UNKNOWN)
-endif()
-```
-
-这样在 C++ 代码中可以通过 `#ifdef ROS_DISTRO_HUMBLE` 区分版本。
-
----
+消息包通过 `rosidl_generate_interfaces()` 生成接口，控制节点通过 `ament_target_dependencies()` 声明依赖，包末尾调用 `ament_package()`。当前 ROS2 构建支持 Foxy / Humble。
 
 ## 8. 添加目标 add_executable / add_library
 
@@ -668,9 +620,7 @@ endif()
 通过 `$ENV{变量名}` 读取系统环境变量：
 
 ```cmake
-if($ENV{ROS_DISTRO} MATCHES "noetic")
-    # ROS1 代码
-elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
     # ROS2 代码
 endif()
 ```
@@ -753,21 +703,6 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--disable-new-dt
 ---
 
 ## 20. 消息接口生成
-
-### ROS1 catkin 消息生成（`src/robot_msgs/CMakeLists.txt:13-33`）
-
-```cmake
-add_message_files(
-  FILES
-  MotorCommand.msg
-  MotorState.msg
-)
-generate_messages(
-  DEPENDENCIES
-  std_msgs
-  geometry_msgs
-)
-```
 
 ### ROS2 rosidl 消息生成（`src/robot_msgs/CMakeLists.txt:53-72`）
 
@@ -1020,8 +955,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 | 文件 | 类型 | 特点 |
 |------|------|------|
 | `src/rl_sar/CMakeLists.txt` | 核心框架 | 最复杂，含 ONNX/Torch/MuJoCo/RPATH/多平台 |
-| `src/robot_msgs/CMakeLists.txt` | 消息定义 | ROS1/ROS2 双支持消息生成 |
-| `src/robot_joint_controller/CMakeLists.txt` | 控制器插件 | pluginlib 导出 + ROS1/ROS2 双支持 |
+| `src/robot_msgs/CMakeLists.txt` | 消息定义 | ROS2 消息生成 |
+| `src/robot_joint_controller/CMakeLists.txt` | 控制器插件 | pluginlib 导出 + ROS2 控制器 |
 | `src/task_game/CMakeLists.txt` | 应用节点 | 标准 ament 可执行文件 |
 | `src/obstacle_game/CMakeLists.txt` | 应用节点 | 标准 ament 可执行文件 |
 | `src/remote_node/CMakeLists.txt` | 串口节点 | 依赖回退 + 多平台串口 |

@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概览
 
-这是一个机器人强化学习仿真与实机部署工作区，主要面向四足/轮式/人形机器人。仓库同时支持 ROS Noetic、ROS2 Foxy/Humble，以及非 ROS 的 CMake 硬件部署构建；仿真侧包含 Gazebo 和部分 MuJoCo 支持。
+这是一个机器人强化学习仿真与实机部署工作区，主要面向四足/轮式/人形机器人。仓库支持 ROS2 Foxy/Humble，以及独立 CMake 的 MuJoCo 仿真构建；实机部署使用 ROS2。
 
 当前代码按 ROS 包组织在 `src/` 下，核心关系如下：
 
-- `rl_sar`：上游强化学习控制框架核心包，提供 Gazebo/MuJoCo 仿真入口和不同机器人实机控制入口；可作为 ROS 包构建，也可通过顶层 `build.sh -m/-mj` 以纯 CMake 构建到 `cmake_build/bin`。
+- `rl_sar`：上游强化学习控制框架核心包，提供 MuJoCo 仿真入口和不同机器人实机控制入口；可作为 ROS 包构建，也可通过顶层 `build.sh -m/-mj` 以纯 CMake 构建到 `cmake_build/bin`。
 - `robot_msgs`：共享消息定义包，包含底层电机/机器人状态消息，以及本项目新增的 `Cmd`、`Remote`、`Int`、`BoxIdGrid` 等 ROS2 消息。
-- `robot_joint_controller`：ROS/ROS2 控制器插件包，依赖 `robot_msgs`，为 `rl_sar` 的 Gazebo/ros_control 路径提供关节控制器。
+- `robot_joint_controller`：ROS2 控制器插件包，依赖 `robot_msgs`，保留通用关节控制器插件，`rl_sar` 不再依赖该包。
 - `remote_node`：ROS2 遥控器串口驱动节点，读取串口协议并发布 `robot_msgs/msg/Remote` 到 `remote` 话题；如果系统没有 ROS `serial` 包，会回退编译 `src/rl_sar/library/thirdparty/robot_sdk/atdog/serial`。
 - `obstacle_game`：障碍赛 ROS2 应用，`Robot` 订阅遥控器、读取 TF 位置、调用 `Pilot` 自动导航并发布 `robot_move_cmd`；`Record` 用于按遥控器按键记录路径 YAML。
 - `task_game`：任务赛 ROS2 应用，结构与 `obstacle_game` 类似，但包含自定义行为树 `BT`。`Robot` 注册 `GeneratePlaneAction -> CatchBoxAction -> PlaceBoxAction` 顺序节点，通过黑板传递 `MoveBoxPlan` 和 `plan_index`。
-- `rl_sar_zoo`：机器人描述资源包集合，用于 Gazebo/MuJoCo/URDF 等描述文件。
+- `rl_sar_zoo`：机器人描述资源包集合，用于 MuJoCo/URDF 等描述文件。
 
 ## 常用命令
 
@@ -32,7 +32,7 @@ git submodule update --init --recursive --recommend-shallow --progress
 ./build.sh
 ```
 
-在当前 ROS 环境下构建全部 ROS 包：ROS1 使用 `catkin build`，ROS2 使用 `colcon build --merge-install --symlink-install`。
+在当前 ROS 环境下构建全部 ROS 包：使用 `colcon build --merge-install --symlink-install`。
 
 ```bash
 ./build.sh task_game robot_msgs remote_node
@@ -45,7 +45,7 @@ git submodule update --init --recursive --recommend-shallow --progress
 ./build.sh -mj
 ```
 
-`-m/--cmake` 使用纯 CMake 构建 `src/rl_sar`，用于硬件部署，输出在 `cmake_build/bin` 和 `cmake_build/lib`；`-mj/--mujoco` 在纯 CMake 构建中启用 MuJoCo 支持。
+`-m/--cmake` 使用纯 CMake 构建 `src/rl_sar`，用于公共库构建，输出在 `cmake_build/bin` 和 `cmake_build/lib`；`-mj/--mujoco` 在纯 CMake 构建中启用 MuJoCo 支持。
 
 ```bash
 ./build.sh -c
@@ -73,25 +73,13 @@ colcon test-result --verbose
 
 ### 运行仿真与节点
 
-```bash
-source install/setup.bash
-ros2 launch rl_sar gazebo.launch.py rname:=<ROBOT>
-```
-
-启动 Gazebo 仿真环境。README 强调 Gazebo 启动后还需要另开终端运行控制程序：
-
-```bash
-source install/setup.bash
-ros2 run rl_sar rl_sim
-```
-
 MuJoCo 构建后可直接运行：
 
 ```bash
 ./cmake_build/bin/rl_sim_mujoco <ROBOT> <SCENE>
 ```
 
-例如 README 中的示例：`./cmake_build/bin/rl_sim_mujoco g1 scene_29dof`。
+例如 README 中的示例：`./cmake_build/bin/rl_sim_mujoco atdog2 scene`。
 
 障碍赛已有 ROS2 launch 文件：
 
@@ -142,7 +130,7 @@ ROS2 包的 CMake 在 `BUILD_TESTING` 时启用 `ament_lint_auto`，可用 `colc
 
 ### 消息定义注意事项
 
-`robot_msgs` 同时支持 ROS1/ROS2 分支，但当前新增的 `Cmd.msg`、`Remote.msg`、`Int.msg`、`BoxIdGrid.msg` 只出现在 ROS2 `rosidl_generate_interfaces` 分支中。修改消息后需要重新构建 `robot_msgs` 及依赖它的包，例如：
+`robot_msgs` 使用 ROS2 接口生成。修改消息后需要重新构建 `robot_msgs` 及依赖它的包，例如：
 
 ```bash
 colcon build --merge-install --symlink-install --packages-select robot_msgs remote_node task_game obstacle_game
@@ -150,4 +138,4 @@ colcon build --merge-install --symlink-install --packages-select robot_msgs remo
 
 ### 构建脚本行为
 
-顶层 `build.sh` 会根据 `ROS_DISTRO` 选择 catkin 或 colcon，并在构建前通过脚本创建/清理适配当前构建模式的 `package.xml` 符号链接。直接绕过 `build.sh` 使用 colcon 时，如果遇到包发现异常，先检查 `src/**/package.xml` 是否被之前的清理或模式切换影响。
+顶层 `build.sh` 使用 colcon 构建 ROS2 包，`-m` 构建公共库，`-mj` 构建 MuJoCo 仿真。包清单固定为 ROS2，无需生成版本切换链接。

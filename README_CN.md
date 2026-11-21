@@ -1,60 +1,10 @@
-> 本工作区已裁剪为 ATDog / ATDog2 / ATDog3，保留 obstacle_game 与 remote_node。请优先阅读 [ATDog 清理与构建说明](ATDOG_CLEANUP.md)。以下为上游历史文档，其他机器人及相关命令不再适用。
+# ATDog 仿真与实机部署
 
-# rl_sar
+本工作区保留 ATDog、ATDog2、ATDog3 的 MuJoCo 仿真、ROS2 实机控制、状态机、动作及切换。支持 TorchScript 与 ONNX 推理；保留遥控、AprilTag 接口、日志、绘图和辅助工具。
 
-[![Ubuntu 20.04/22.04](https://img.shields.io/badge/Ubuntu-20.04/22.04-blue.svg?logo=ubuntu)](https://ubuntu.com/)
-[![macOS](https://img.shields.io/badge/macOS-Experimental-orange.svg?logo=apple)](https://www.apple.com/macos/)
-[![ROS Noetic](https://img.shields.io/badge/ros-noetic-brightgreen.svg?logo=ros)](https://wiki.ros.org/noetic)
-[![ROS2 Foxy/Humble](https://img.shields.io/badge/ros2-foxy/humble-brightgreen.svg?logo=ros)](https://wiki.ros.org/foxy)
-[![Gazebo](https://img.shields.io/badge/Gazebo-Classic-lightgrey.svg?logo=gazebo)](http://gazebosim.org/)
-[![MuJoCo](https://img.shields.io/badge/MuJoCo-3.2.7-orange.svg?logo=mujoco)](https://mujoco.org/)
-[![License](https://img.shields.io/badge/license-Apache2.0-yellow.svg?logo=apache)](https://opensource.org/license/apache-2-0)
+详细构建命令、动作范围与验证记录见 [ATDog 清理与构建说明](ATDOG_CLEANUP.md)。
 
-[English document](README.md)
-
-本仓库提供了机器人强化学习算法的仿真验证与实物部署框架，适配四足机器人、轮足机器人、人形机器人。"sar"代表"simulation and real"
-
-> 支持**IsaacGym**和**IsaacSim**
->
-> 支持**ROS-Noetic**和**ROS2-Foxy/Humble**
->
-> 支持**libtorch**和**onnxruntime**
->
-> 支持**Linux**和**macOS**(只支持Mujoco仿真)
->
-> 支持**Gazebo**和**Mujoco**(部分支持)
->
-> 支持**Locomotion**和**Dance**
-
-支持列表：
-
-|Robot Name (rname:=)|Pre-Trained Policy|Gazebo|Mujoco|Real|
-|-|-|-|-|-|
-|Unitree-A1 (a1)|legged_gym (IsaacGym)|✅|❌|✅|
-|Unitree-Go2 (go2)|himloco (IsaacGym)</br>robot_lab (IsaacSim)|✅|✅|✅</br>✅|
-|Unitree-Go2W (go2w)|robot_lab (IsaacSim)|✅|✅|✅|
-|Unitree-B2 (b2)|robot_lab (IsaacSim)|✅|✅|⚪|
-|Unitree-B2W (b2w)|robot_lab (IsaacSim)|✅|✅|⚪|
-|Unitree-G1 (g1)|robomimic/locomotion (IsaacGym)</br>robomimic/charleston (IsaacGym)</br>whole_body_tracking/dance_102 (IsaacSim)</br>whole_body_tracking/gangnam_style (IsaacSim)|✅|✅|✅|
-|FFTAI-GR1T1 (gr1t1)</br>(Only available on Ubuntu20.04)|legged_gym (IsaacGym)|✅|❌|⚪|
-|FFTAI-GR1T2 (gr1t2)</br>(Only available on Ubuntu20.04)|legged_gym (IsaacGym)|✅|❌|⚪|
-|zhinao-L4W4 (l4w4)|legged_gym (IsaacGym)|✅|❌|✅|
-|Deeprobotics-Lite3 (lite3)|himloco (IsaacGym)|✅|❌|✅|
-|Agibot-D1 (d1)|robot_lab (IsaacSim)|✅|✅|✅|
-|DDTRobot-Tita (tita)|robot_lab (IsaacSim)|✅|❌|⚪|
-
-> [!IMPORTANT]
-> Python版本暂时停止维护，如有需要请使用[v2.3](https://github.com/fan-ziqi/rl_sar/releases/tag/v2.3)版本，后续可能会重新上线。
-
-> [!NOTE]
-> 如果你想使用IsaacLab（IsaacSim）训练策略，请使用 [robot_lab](https://github.com/fan-ziqi/robot_lab) 项目。
->
-> robot_lab配置文件中的关节顺序 `joint_names` 与本项目代码中 `xxx/robot_lab/config.yaml` 中定义的相同。
->
-> 在 [Github Discussion](https://github.com/fan-ziqi/rl_sar/discussions) 或 [Discord](https://www.robotsfan.com/dc_rl_sar) 中讨论
-
-> [!CAUTION]
-> **免责声明：使用者确认使用本代码产生的所有风险及后果均由使用者自行承担，作者不承担任何直接或间接责任，操作前必须确保已采取充分安全防护措施。**
+[English](README.md)
 
 ## 准备
 
@@ -83,21 +33,13 @@ sudo apt install cmake g++ build-essential libyaml-cpp-dev libeigen3-dev libboos
 brew install boost yaml-cpp tbb libomp pkg-config glfw
 ```
 
-LCM 已通过 `src/rl_sar/library/thirdparty/lcm` 子模块内置，Unitree A1 会自动从源码编译 LCM，不再强制依赖系统安装。
-对于已克隆仓库，请执行：
-
-```bash
-git submodule update --init --recursive --recommend-shallow --progress
-```
 
 如果需要使用ROS，安装下列依赖包：
 
 ```bash
-# ros-noetic (Ubuntu20.04)
-sudo apt install ros-noetic-teleop-twist-keyboard ros-noetic-controller-interface ros-noetic-gazebo-ros-control ros-noetic-joint-state-controller ros-noetic-effort-controllers ros-noetic-joint-trajectory-controller ros-noetic-joy ros-noetic-ros-control ros-noetic-ros-controllers ros-noetic-controller-manager
 
 # ros2-foxy (Ubuntu20.04) / ros2-humble (Ubuntu22.04)
-sudo apt install ros-$ROS_DISTRO-teleop-twist-keyboard ros-$ROS_DISTRO-ros2-control ros-$ROS_DISTRO-ros2-controllers ros-$ROS_DISTRO-control-toolbox ros-$ROS_DISTRO-robot-state-publisher ros-$ROS_DISTRO-joint-state-publisher-gui ros-$ROS_DISTRO-gazebo-ros2-control ros-$ROS_DISTRO-gazebo-ros-pkgs ros-$ROS_DISTRO-xacro
+sudo apt install ros-$ROS_DISTRO-teleop-twist-keyboard ros-$ROS_DISTRO-ros2-control ros-$ROS_DISTRO-ros2-controllers ros-$ROS_DISTRO-control-toolbox ros-$ROS_DISTRO-robot-state-publisher ros-$ROS_DISTRO-joint-state-publisher-gui ros-$ROS_DISTRO-xacro ros-$ROS_DISTRO-joy
 ```
 
 ## 编译
@@ -139,7 +81,7 @@ Usage: ./build.sh [OPTIONS] [PACKAGE_NAMES...]
 
 Options:
   -c, --clean    Clean workspace (remove symlinks and build artifacts)
-  -m, --cmake    Build using CMake (for hardware deployment only)
+  -m, --cmake    Build common libraries using CMake
   -mj,--mujoco   Build with MuJoCo simulator support (CMake only)"
   -h, --help     Show this help message
 
@@ -148,63 +90,25 @@ Examples:
   ./build.sh package1 package2  # Build specific ROS packages
   ./build.sh -c                 # Clean all symlinks and build artifacts
   ./build.sh --clean package1   # Clean specific package and build artifacts
-  ./build.sh -m                 # Build with CMake for hardware deployment
+  ./build.sh -m                 # Build common libraries using CMake
   ./build.sh -mj                # Build with CMake and MuJoCo simulator support
 ```
 
 > [!TIP]
-> 如果 catkin build 报错: `Unable to find either executable 'empy' or Python module 'em'`, 在`catkin build` 之前执行 `catkin config -DPYTHON_EXECUTABLE=/usr/bin/python3`
 
 ## 运行
 
-下文中使用 **\<ROBOT\>/\<CONFIG\>** 代替表示不同的环境，如 `go2/himloco` 、 `go2w/robot_lab`。
+下文中使用 **\<ROBOT\>/\<CONFIG\>** 代替表示不同的环境，如 `atdog2/robot_lab` 、 `atdog3/robot_lab`。
 
 运行前请将训练好的pt模型文件拷贝到`rl_sar/src/rl_sar/policy/<ROBOT>/<CONFIG>`中，并配置`<ROBOT>/<CONFIG>/config.yaml`和`<ROBOT>/base.yaml`中的参数。
 
 ### 仿真
 
-#### Gazebo
-
-打开一个终端，启动gazebo仿真环境
-
-```bash
-# ROS1
-source devel/setup.bash
-roslaunch rl_sar gazebo.launch rname:=<ROBOT>
-
-# ROS2
-source install/setup.bash
-ros2 launch rl_sar gazebo.launch.py rname:=<ROBOT>
-```
-
-打开一个新终端，启动控制程序
-
-```bash
-# ROS1
-source devel/setup.bash
-rosrun rl_sar rl_sim
-
-# ROS2
-source install/setup.bash
-ros2 run rl_sar rl_sim
-```
-
-> [!TIP]
-> **重要提示：** 启动Gazebo后，必须在另一个终端中启动`rl_sim`来控制机器人。如果不启动`rl_sim`，机器人将不会被控制，可能会摔倒。
->
-> Ubuntu22.04中若启动Gazebo后看不到机器人，则是机器人初始化到了视野范围外，启动rl_sim后会自动重置机器人位置。若机器人在站立过程中翻倒，请使用键盘`R`或手柄`RB+Y`重置机器人环境。
-
-如果第一次启动Gazebo无法打开则需要下载模型包
-
-```bash
-git clone https://github.com/osrf/gazebo_models.git ~/.gazebo/models
-```
-
 #### Mujoco
 
 ```bash
 ./cmake_build/bin/rl_sim_mujoco <ROBOT> <SCENE>
-# Example: ./cmake_build/bin/rl_sim_mujoco g1 scene_29dof
+# Example: ./cmake_build/bin/rl_sim_mujoco atdog2 scene
 ```
 
 #### Docker
@@ -218,14 +122,11 @@ cd docker && docker compose up -d
 docker compose exec rl_sar bash
 
 # 容器内 - MuJoCo仿真
-./cmake_build/bin/rl_sim_mujoco g1 scene_29dof
+./cmake_build/bin/rl_sim_mujoco atdog2 scene
 
-# 容器内 - Gazebo仿真
-ros2 launch rl_sar gazebo.launch.py rname:=go2
-# (新终端) ros2 run rl_sar rl_sim
 
 # 容器内 - 真实机器人
-./cmake_build/bin/rl_real_go2 <NETWORK_INTERFACE>
+ros2 run rl_sar rl_real_atdog2
 ```
 
 ### 使用手机网页控制 (实验性)
@@ -246,10 +147,6 @@ colcon build --packages-select web_video_server
 在机器人上运行 rosbridge 和 web_video_server
 
 ```bash
-# ROS1
-roslaunch rosbridge_server rosbridge_websocket.launch
-rosrun web_video_server web_video_server
-
 # ROS2
 ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 ros2 run web_video_server web_video_server
@@ -267,8 +164,6 @@ ros2 run web_video_server web_video_server
 |X|N|切换导航模式 (导航模式屏蔽速度命令，接收`cmd_vel`话题)|
 |Y|N/A|N/A|
 |**仿真**|||
-|RB+Y|R|重置Gazebo环境 (让摔倒的机器人站起来)|
-|RB+X|Enter|切换Gazebo运行/停止 (默认为运行状态)|
 |**电机**|||
 |LB+A|M|N/A (推荐设置为电机使能)|
 |LB+B|K|N/A (推荐设置为电机失能)|
@@ -291,281 +186,36 @@ ros2 run web_video_server web_video_server
 
 ### 真实机器人
 
-<details>
-
-<summary>Unitree A1（点击展开）</summary>
-
-与Unitree A1连接可以使用无线与有线两种方式
-
-- 无线：连接机器人发出的Unitree开头的WIFI **（注意：无线连接可能会出现丢包断联甚至失控，请注意安全）**
-- 有线：用网线连接计算机和机器人的任意网口，配置计算机地址为192.168.123.162，子网掩码255.255.255.0
-
-新建终端，启动控制程序
-
 ```bash
-# ROS1
-source devel/setup.bash
-rosrun rl_sar rl_real_a1
-
-# ROS2
 source install/setup.bash
-ros2 run rl_sar rl_real_a1
-
-# CMake
-./cmake_build/bin/rl_real_a1
+ros2 run rl_sar rl_real_atdog2
+# 其他入口：rl_real_atdog、rl_real_atdog3
 ```
-
-</details>
-
-<details>
-
-<summary>Unitree Go2/Go2W/G1(29dofs)（点击展开）</summary>
-
-#### 网线连接
-
-用网线的一端连接Go2/Go2W/G1(29dofs)机器人，另一端连接你的电脑，并开启电脑的 USB Ethernet 后进行配置。机器狗机载电脑的 IP 地地址为 `192.168.123.161`，故需将电脑 USB Ethernet 地址设置为与机器狗同一网段，如在 Address 中输入 `192.168.123.222` (`222`可以改成其他)。
-
-通过`ifconfig`命令查看123网段的网卡名字，如`enxf8e43b808e06`，下文用 \<YOUR_NETWORK_INTERFACE\> 代替
-
-Go2:
-
-新建终端，启动控制程序。如果控制Go2W，需要在命令后加`wheel`，否则留空。
-
-```bash
-# ROS1
-source devel/setup.bash
-rosrun rl_sar rl_real_go2 <YOUR_NETWORK_INTERFACE> [wheel]
-
-# ROS2
-source install/setup.bash
-ros2 run rl_sar rl_real_go2 <YOUR_NETWORK_INTERFACE> [wheel]
-
-# CMake
-./cmake_build/bin/rl_real_go2 <YOUR_NETWORK_INTERFACE> [wheel]
-```
-
-G1(29dofs):
-
-开机后将机器人吊起来，按L2+R2进入调试模式，然后新建终端，启动控制程序。
-
-```bash
-# ROS1
-source devel/setup.bash
-rosrun rl_sar rl_real_g1 <YOUR_NETWORK_INTERFACE>
-
-# ROS2
-source install/setup.bash
-ros2 run rl_sar rl_real_g1 <YOUR_NETWORK_INTERFACE>
-
-# CMake
-./cmake_build/bin/rl_real_g1 <YOUR_NETWORK_INTERFACE>
-```
-
-#### 在机载Jetson中部署
-
-使用网线连接电脑和机器人，登陆Jetson主机，密码123：
-
-```bash
-ssh unitree@192.168.123.18
-```
-
-将手机连接机器人的USB，开启手机的USB网络共享，拉取代码并使用 `./build.sh -m` 编译，编译成功后运行：
-
-```bash
-# Go2:
-./cmake_build/bin/rl_real_go2 <YOUR_NETWORK_INTERFACE> [wheel]
-
-# G1(29dofs):
-./cmake_build/bin/rl_real_g1 <YOUR_NETWORK_INTERFACE>
-```
-
-然后即可拔掉手机和网线，使用遥控器控制。
-
-#### 开机自启动
-
-如需设置开机自启动，可以参考以下流程：
-
-创建一个服务文件
-
-```bash
-sudo touch /etc/systemd/system/rl_sar.service
-```
-
-写入以下内容，假设rl_sar工程在 `~/rl_sar` 目录下
-
-```
-[Unit]
-Description=RL SAR Service
-After=network.target
-
-[Service]
-Type=simple
-User=unitree
-WorkingDirectory=/home/unitree/rl_sar
-ExecStart=/home/unitree/rl_sar/cmake_build/bin/rl_real_go2 eth0 wheel
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
-
-重新加载 systemd 配置：
-
-```bash
-sudo systemctl daemon-reload
-```
-
-设置开机自动启动：
-
-```bash
-sudo systemctl enable rl_sar.service
-```
-
-禁用开机自动启动：
-
-```bash
-sudo systemctl disable rl_sar.service
-```
-
-启动服务：
-
-```bash
-sudo systemctl enable rl_sar.service
-```
-
-停止服务：
-
-```bash
-sudo systemctl stop rl_sar.service
-```
-
-重启服务：
-
-```bash
-sudo systemctl restart rl_sar.service
-```
-
-查看服务日志：
-
-```bash
-sudo journalctl -u rl_sar.service -f
-```
-
-重启后机机器人会先运行内置站立程序，rl_sar服务启动后则会自动阻尼趴下，随后可以使用遥控器正常控制。
-
-</details>
-
-<details>
-
-<summary>云深处科技 Lite3 (Click to expand)</summary>
-
-Lite3通过无线网络进行连接。
-(由于一些型号的Lite3没有开放网线接口，需要额外安装，所以有线连接方式暂时没有进行测试)
-
-- 连接Lite3的Wifi，并测试通信状况。我们强烈建议在运行本项目之前，先通过 [Lite3_Motion_SDK](https://github.com/DeepRoboticsLab/Lite3_MotionSDK)进行测试和检查，在确认一切正常后再运行。
- **(注意：无线连接可能会出现丢包断联甚至失控，请注意安全)**
-
-- 确认所使用Lite3的IP地址和本地端口与目标端口号码，并设置 **在 rl_sar/src/rl_real_lite3.cpp的行46-48**中.
-- 在Lite3的运动主机中设置 **jy_exe/conf/network.toml**，使其IP地址指向与Lite3同一网段的本机，建立基于UDP的双向通信.
-
-> [!CAUTION]
-> **检查关节映射参数<br>检查确认 rl_sar/policy/himloco/config.yaml中的joint mappng参数。在Sim2Sim中使用的默认joint mapping参数与实机部署时的joint mapping是不同的，如果使用错误可能造成机器人错误的行为，带来潜在的硬件损坏和安全风险。**
-
-Lite3也支持使用云深处Retroid手柄控制，详情参见[Deeprobotics Gamepad](https://github.com/DeepRoboticsLab/gamepad)
-
-新建终端，启动控制程序
-
-```bash
-# ROS1
-source devel/setup.bash
-rosrun rl_sar rl_real_lite3
-
-# ROS2
-source install/setup.bash
-ros2 run rl_sar rl_real_lite3
-
-# CMake
-./cmake_build/bin/rl_real_lite3
-```
-
-</details>
-
-<details>
-
-<summary>智元 Agibot D1（点击展开）</summary>
-
-D1通过无线网络进行连接。
-
-- 连接D1的WiFi（默认SSID和密码在机器人侧面标签上）
-- 机器人默认IP: `192.168.234.1` (WiFi) 或 `192.168.168.168` (有线)
-- 需要在机器人端配置 `/opt/export/config/sdk_config.yaml`，将 `target_ip` 设置为你的电脑IP
-
-**网络配置步骤：**
-
-1. SSH登录机器人：
-```bash
-ssh firefly@192.168.234.1  # 密码: firefly
-```
-
-2. 修改SDK配置文件：
-```bash
-vim /opt/export/config/sdk_config.yaml
-```
-将 `target_ip` 修改为你的电脑IP地址（如 `192.168.234.2`）
-
-3. 重启机器人使配置生效
-
-**运行控制程序：**
-
-```bash
-# ROS1
-source devel/setup.bash
-rosrun rl_sar rl_real_d1 [本地IP] [机器人IP]
-
-# ROS2
-source install/setup.bash
-ros2 run rl_sar rl_real_d1 [本地IP] [机器人IP]
-
-# CMake
-./cmake_build/bin/rl_real_d1 [本地IP] [机器人IP]
-
-# 示例（使用默认IP）
-./cmake_build/bin/rl_real_d1 192.168.234.2 192.168.234.1
-```
-
-</details>
 
 ### 训练执行器网络
 
-下面拿A1举例
+下面拿ATDog2举例
 
-1. 取消注释`rl_real_a1.hpp`中最上面的`#define CSV_LOGGER`，你也可以在仿真程序中修改对应部分采集仿真数据用来测试训练过程。
+1. 取消注释`rl_real_atdog2.hpp`中最上面的`#define CSV_LOGGER`，你也可以在仿真程序中修改对应部分采集仿真数据用来测试训练过程。
 2. 运行控制程序，程序会记录所有数据到`src/rl_sar/policy/<ROBOT>/motor.csv`。
 3. 停止控制程序，开始训练执行器网络。注意，下面的路径前均省略了`rl_sar/src/rl_sar/policy/`。
     ```bash
-    rosrun rl_sar actuator_net.py --mode train --data a1/motor.csv --output a1/motor.pt
+    ros2 run rl_sar actuator_net.py --mode train --data atdog2/motor.csv --output atdog2/motor.pt
     ```
 4. 验证已经训练好的训练执行器网络。
     ```bash
-    rosrun rl_sar actuator_net.py --mode play --data a1/motor.csv --output a1/motor.pt
+    ros2 run rl_sar actuator_net.py --mode play --data atdog2/motor.csv --output atdog2/motor.pt
     ```
 
 ## 添加你的机器人
 
-下面使用 **\<ROBOT\>/\<CONFIG\>** 代替表示你的机器人环境。你只需要创建或修改下述文件，命名必须跟下面一样。（你可以参考go2w对应的文件）
+下面使用 **\<ROBOT\>/\<CONFIG\>** 代替表示你的机器人环境。你只需要创建或修改下述文件，命名必须跟下面一样。（你可以参考ATDog2对应的文件）
 
 ```yaml
 # 你的机器人description
 rl_sar/src/rl_sar_zoo/<ROBOT>_description/CMakeLists.txt
-rl_sar/src/rl_sar_zoo/<ROBOT>_description/package.ros1.xml
-rl_sar/src/rl_sar_zoo/<ROBOT>_description/package.ros2.xml
-rl_sar/src/rl_sar_zoo/<ROBOT>_description/xacro/robot.xacro
-rl_sar/src/rl_sar_zoo/<ROBOT>_description/xacro/gazebo.xacro
-rl_sar/src/rl_sar_zoo/<ROBOT>_description/config/robot_control.yaml
-rl_sar/src/rl_sar_zoo/<ROBOT>_description/config/robot_control_ros2.yaml
+rl_sar/src/rl_sar_zoo/<ROBOT>_description/package.xml
+rl_sar/src/rl_sar_zoo/<ROBOT>_description/urdf/<ROBOT>.urdf
 
 # 你训练的policy
 policy/<ROBOT>/base.yaml  # 此文件中必须遵守实物机器人的关节顺序

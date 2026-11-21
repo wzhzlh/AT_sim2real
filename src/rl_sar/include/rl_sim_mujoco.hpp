@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef RL_SIM_HPP
-#define RL_SIM_HPP
+#ifndef RL_SIM_MUJOCO_HPP
+#define RL_SIM_MUJOCO_HPP
 
 // #define PLOT
 // #define CSV_LOGGER
@@ -104,11 +104,9 @@ private:
     void GetSysJoystick();
 
     // others
-    std::string gazebo_model_name;
     std::map<std::string, float> joint_positions;
     std::map<std::string, float> joint_velocities;
     std::map<std::string, float> joint_efforts;
-    void StartJointController(const std::string& ros_namespace, const std::vector<std::string>& names);
 };
 
-#endif // RL_SIM_HPP
+#endif // RL_SIM_MUJOCO_HPP

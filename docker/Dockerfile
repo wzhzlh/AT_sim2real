@@ -1,5 +1,5 @@
 # rl_sar Docker Image
-# ROS2 Humble + Gazebo + MuJoCo + Real Robot Support
+# ROS2 Humble + MuJoCo + ATDog Hardware Support
 #
 # Build from repo root:
 #   docker build -f docker/Dockerfile -t rl_sar:humble .
@@ -67,22 +67,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-joint-state-publisher-gui \
     ros-humble-xacro \
     ros-humble-joy \
-    # For parameter_blackboard used in gazebo.launch.py
-    ros-humble-demo-nodes-cpp \
     && rm -rf /var/lib/apt/lists/*
-
-# Gazebo simulation packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-humble-gazebo-ros2-control \
-    ros-humble-gazebo-ros-pkgs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Download Gazebo models (sun, ground_plane) using sparse checkout
-RUN mkdir -p /root/.gazebo/models && \
-    cd /root/.gazebo/models && \
-    git clone --depth 1 --filter=blob:none --sparse \
-        https://github.com/osrf/gazebo_models.git . && \
-    git sparse-checkout set sun ground_plane
 
 # Create workspace
 WORKDIR /rl_sar
@@ -92,12 +77,12 @@ COPY . .
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Build ROS2 workspace (for Gazebo simulation)
+# Build ROS2 workspace (ATDog hardware and auxiliary nodes)
 # Must source ROS2 setup first for colcon to find ament_cmake
 SHELL ["/bin/bash", "-c"]
 RUN source /opt/ros/humble/setup.bash && ./build.sh
 
-# Build MuJoCo (for MuJoCo simulation + real robot executables)
+# Build standalone MuJoCo simulator
 RUN ./build.sh -mj
 
 ENTRYPOINT ["/entrypoint.sh"]

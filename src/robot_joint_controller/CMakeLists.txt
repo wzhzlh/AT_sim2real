@@ -3,32 +3,7 @@ project(robot_joint_controller VERSION 3.0.0 LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if($ENV{ROS_DISTRO} MATCHES "noetic")
-    find_package(catkin REQUIRED COMPONENTS
-        controller_interface
-        hardware_interface
-        pluginlib
-        roscpp
-        realtime_tools
-        robot_msgs
-    )
-    catkin_package(
-        CATKIN_DEPENDS
-        robot_msgs
-        controller_interface
-        hardware_interface
-        pluginlib
-        roscpp
-        INCLUDE_DIRS ros/include
-        LIBRARIES ${PROJECT_NAME}
-    )
-    include_directories(ros/include ${catkin_INCLUDE_DIRS})
-    link_directories(${catkin_LIB_DIRS} lib)
-    add_library(robot_joint_controller
-        ros/src/robot_joint_controller.cpp
-    )
-    target_link_libraries(robot_joint_controller ${catkin_LIBRARIES})
-elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
+if($ENV{ROS_DISTRO} MATCHES "foxy|humble")
     if($ENV{ROS_DISTRO} MATCHES "foxy")
         add_definitions(-DROS_DISTRO_FOXY)
     elseif($ENV{ROS_DISTRO} MATCHES "humble")

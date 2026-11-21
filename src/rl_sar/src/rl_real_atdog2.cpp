@@ -167,8 +167,8 @@ void RL_Real::SetCommand(const RobotCommand<float>* command) {
             legs_target[leg].joint[joint].kp     = 0.0f;
             legs_target[leg].joint[joint].kd     = 0.0f;
         }
-        legs_target[leg].wheel.omega  = 0.0f;
-        legs_target[leg].wheel.torque = 0.0f;
+        legs_target[leg].wheel.omega = 0.0f;
+        legs_target[leg].wheel.kd    = 0.0f;
     }
 
     const int dof_count      = this->params.Get<int>("num_of_dofs");

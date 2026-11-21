@@ -27,6 +27,8 @@ public:
 
     bool get_imu_state(std::array<float,4> &q,std::array<float,3> &w);
     void set_motor_error_callback(std::function<void(uint16_t)> callback);
+    uint16_t get_watch_dog() const;
+    uint16_t get_motor_error() const;
 private:
     bool exit_thread{false};
     bool first_update{true};
@@ -57,14 +59,17 @@ private:
     float filtered_omega[4][3];
     float position[4][3];
 
-    float filtered_wheel_torque[4];
-    float filtered_wheel_omega[4];
+    float wheel_rad[4]{};
+    float filtered_wheel_torque[4]{};
+    float filtered_wheel_omega[4]{};
 
     mutable std::mutex state_mutex_;
 
     float joint_default_kd{8.0};
     float wheel_default_kd{8.0};
 
+    uint16_t watch_dog_{0};
+    uint16_t motor_error_{0};
     uint32_t last_time{0};
     std::function<void(uint16_t)> motor_error_callback_;
 };

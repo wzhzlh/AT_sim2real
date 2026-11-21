@@ -120,8 +120,13 @@ void RL_Real::GetState(RobotState<float>* state) {
             state->motor_state.tau_est[i] = legs_state[leg_index].joint[actuator_index].torque;
         }
         else {
-            state->motor_state.dq[i]      = legs_state[i-12].wheel.omega;
-            state->motor_state.tau_est[i] = legs_state[i-12].wheel.torque;
+            const int wheel_index = i - 12;
+            if (wheel_index < 0 || wheel_index >= static_cast<int>(legs_state.size())) {
+                continue;
+            }
+            state->motor_state.q[i]       = legs_state[wheel_index].wheel.rad;
+            state->motor_state.dq[i]      = legs_state[wheel_index].wheel.omega;
+            state->motor_state.tau_est[i] = legs_state[wheel_index].wheel.torque;
         }
     }
 
@@ -156,8 +161,8 @@ void RL_Real::SetCommand(const RobotCommand<float>* command) {
             legs_target[leg].joint[joint].kp     = 0.0f;
             legs_target[leg].joint[joint].kd     = 0.0f;
         }
-        legs_target[leg].wheel.omega  = 0.0f;
-        legs_target[leg].wheel.torque = 0.0f;
+        legs_target[leg].wheel.omega = 0.0f;
+        legs_target[leg].wheel.kd    = 0.0f;
     }
 
     const int dof_count      = this->params.Get<int>("num_of_dofs");
@@ -168,9 +173,17 @@ void RL_Real::SetCommand(const RobotCommand<float>* command) {
         const int leg_index      = hw_index / 3;
         const int actuator_index = hw_index % 3;
 
-        if (dof >= 12) {            //给足端赋值
-            legs_target[dof - 12].wheel.omega  = command->motor_command.dq[dof];
-            legs_target[dof - 12].wheel.torque = command->motor_command.tau[dof];
+        if (dof >= 12) {            //给轮子赋值
+            const int wheel_index = dof - 12;
+            if (wheel_index < 0 || wheel_index >= 4) {
+                continue;
+            }
+            if (dof < static_cast<int>(command->motor_command.dq.size())) {
+                legs_target[wheel_index].wheel.omega = command->motor_command.dq[dof];
+            }
+            if (dof < static_cast<int>(command->motor_command.kd.size())) {
+                legs_target[wheel_index].wheel.kd = command->motor_command.kd[dof];
+            }
         } else {
             if (dof < static_cast<int>(command->motor_command.q.size())) {
                 legs_target[leg_index].joint[actuator_index].rad = command->motor_command.q[dof];

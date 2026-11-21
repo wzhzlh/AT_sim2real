@@ -166,8 +166,8 @@ void RL_Real::SetCommand(const RobotCommand<float>* command) {
             legs_target[leg].joint[joint].kp     = 0.0f;
             legs_target[leg].joint[joint].kd     = 0.0f;
         }
-        legs_target[leg].wheel.omega  = 0.0f;
-        legs_target[leg].wheel.torque = 0.0f;
+        legs_target[leg].wheel.omega = 0.0f;
+        legs_target[leg].wheel.kd    = 0.0f;
     }
 
     const int dof_count      = this->params.Get<int>("num_of_dofs");
@@ -179,8 +179,16 @@ void RL_Real::SetCommand(const RobotCommand<float>* command) {
         const int actuator_index = hw_index % 3;
 
         if (dof >= 12) {
-            legs_target[dof - 12].wheel.omega  = command->motor_command.dq[dof];
-            legs_target[dof - 12].wheel.torque = command->motor_command.tau[dof];
+            const int wheel_index = dof - 12;
+            if (wheel_index < 0 || wheel_index >= 4) {
+                continue;
+            }
+            if (dof < static_cast<int>(command->motor_command.dq.size())) {
+                legs_target[wheel_index].wheel.omega = command->motor_command.dq[dof];
+            }
+            if (dof < static_cast<int>(command->motor_command.kd.size())) {
+                legs_target[wheel_index].wheel.kd = command->motor_command.kd[dof];
+            }
         } else {
             if (dof < static_cast<int>(command->motor_command.q.size())) {
                 legs_target[leg_index].joint[actuator_index].rad = command->motor_command.q[dof];
